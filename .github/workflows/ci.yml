@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: API (lint, tipos, testes, build, e2e com RLS)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gestock
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/gestock
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/gestock
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint -w @gestock/api
+      - run: npm run typecheck -w @gestock/api
+      - run: npm test -w @gestock/api
+      - run: npm run build -w @gestock/api
+
+      - name: Migrations e usuário da aplicação (sem BYPASSRLS)
+        working-directory: apps/api
+        run: |
+          npx prisma migrate deploy
+          sed "s/TROQUE-ESTA-SENHA/ci-app-pass/" prisma/sql/app-role.sql > /tmp/app-role.sql
+          npx prisma db execute --file /tmp/app-role.sql --schema prisma/schema.prisma
+
+      - name: Testes e2e (isolamento entre estabelecimentos)
+        run: npm run test:e2e -w @gestock/api
+        env:
+          DATABASE_URL: postgresql://gestock_app:ci-app-pass@localhost:5432/gestock

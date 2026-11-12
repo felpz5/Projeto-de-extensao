@@ -24,7 +24,7 @@ Transformar vendas e movimentações de estoque em **indicadores, previsões e r
 | Camada | Tecnologia | Por quê |
 |---|---|---|
 | Linguagem | **TypeScript** (front e back) | Uma linguagem só, tipos compartilhados, menos bugs. |
-| Monorepo | **pnpm workspaces** | Front, back e pacote compartilhado no mesmo repositório, um único `install`. |
+| Monorepo | **npm workspaces** | Front, back e pacote compartilhado no mesmo repositório, um único `install`. Já vem com o Node, sem instalar nada extra. |
 | Front-end | **React + Vite** | Rápido de desenvolver e de buildar; ecossistema enorme. |
 | UI | **Tailwind CSS + shadcn/ui** | Componentes prontos e acessíveis, fácil aplicar o tema azul-marinho/branco. |
 | Estado de servidor | **TanStack Query** | Cache, loading e refetch sem boilerplate. |
@@ -256,10 +256,10 @@ Cada sugestão exibe: quantidade, nível de confiança, quantos dias de históri
 ## 9. Organização Git / GitHub
 
 ### 9.1 Branches
-- `main` — sempre estável, protegida (só via PR, CI verde obrigatório).
-- `develop` — integração do que está pronto.
-- `feat/<escopo>-<descricao>` · `fix/...` · `chore/...` · `docs/...`
-  Ex.: `feat/sales-registro-presencial`
+- `main` — versão estável (a que será apresentada). Protegida: só recebe PR vindo da `develop`, com CI verde.
+- `develop` — branch comum de trabalho: a equipe faz push direto aqui (sempre `git pull` antes).
+- Branches de funcionalidade são **opcionais**, para entregas grandes: `feat/<escopo>-<descricao>`, `fix/...`, `docs/...`
+  Ex.: `feat/backend-base` → PR para `develop`.
 
 ### 9.2 Commits — Conventional Commits
 ```
@@ -271,7 +271,8 @@ docs: atualizar modelo de dados
 ### 9.3 Fluxo de trabalho
 1. Toda tarefa vira uma **Issue** (com label: `frontend`, `backend`, `banco`, `segurança`, `previsão`).
 2. **GitHub Projects** (quadro Kanban): Backlog → A fazer → Em andamento → Revisão → Pronto.
-3. Branch a partir de `develop` → PR → revisão de pelo menos 1 colega → merge (squash).
+3. Trabalho do dia a dia direto na `develop`; entregas grandes em branch própria → PR para `develop`.
+   Ao fechar uma fase: PR `develop` → `main`.
 4. Template de PR com checklist (testes, migration, prints de tela).
 5. **Milestones** = fases do roadmap abaixo.
 
@@ -281,16 +282,18 @@ docs: atualizar modelo de dados
 
 > Ajustar datas conforme o prazo do projeto de extensão.
 
-| Fase | Entregas | Itens da especificação |
-|---|---|---|
-| **0 — Fundação** | Monorepo, lint, CI, banco provisionado, Prisma, design system base, tela de login vazia | — |
-| **1 — Contas e isolamento** | Cadastro/login, criação de estabelecimento, convite de funcionário, papéis, RLS + teste de isolamento | 1, 2 |
-| **2 — Catálogo** | Categorias, ingredientes, produtos (unidade/peso), receitas, mix por peso | 3, 4 |
-| **3 — Estoque** | Estoque inicial, compras/entradas, saídas, ajustes, inventário, histórico, saldo, alerta de estoque baixo | 5, 6, 10 |
-| **4 — Vendas** | Venda presencial (valor + peso), venda online (ingredientes selecionados), baixa automática/estimada, histórico e filtros | 7, 8 |
-| **5 — Dashboard** | Total de vendas, nº de pedidos, mais vendidos, estoque baixo, movimentações recentes | 9 |
-| **6 — Previsão** | Previsão de demanda, sugestão de reposição, indicadores de confiança | 11 |
-| **7 — Validação** | Seed com dados realistas, uso real na açaiteria, ajustes, deploy, documentação final | — |
+| Fase | Entregas | Itens da especificação | Back-end | Front-end |
+|---|---|---|---|---|
+| **0 — Fundação** | Monorepo, lint, CI, banco provisionado, Prisma, design system base, tela de login vazia | — | ✅ | ⬜ |
+| **1 — Contas e isolamento** | Cadastro/login, criação de estabelecimento, convite de funcionário, papéis, RLS + teste de isolamento | 1, 2 | ✅ | ⬜ |
+| **2 — Catálogo** | Categorias, ingredientes, produtos (unidade/peso), receitas, mix por peso | 3, 4 | ✅ | ⬜ |
+| **3 — Estoque** | Estoque inicial, compras/entradas, saídas, ajustes, inventário, histórico, saldo, alerta de estoque baixo | 5, 6, 10 | ✅ | ⬜ |
+| **4 — Vendas** | Venda presencial (valor + peso), venda online (ingredientes selecionados), baixa automática/estimada, histórico e filtros | 7, 8 | ✅ | ⬜ |
+| **5 — Dashboard** | Total de vendas, nº de pedidos, mais vendidos, estoque baixo, movimentações recentes | 9 | ✅ | ⬜ |
+| **6 — Previsão** | Previsão de demanda, sugestão de reposição, indicadores de confiança | 11 | ✅ | ⬜ |
+| **7 — Validação** | Seed com dados realistas, uso real na açaiteria, ajustes, deploy, documentação final | — | 🟨 seed pronto | ⬜ |
+
+Detalhes do back-end (como rodar, endpoints, segurança): [apps/api/README.md](../apps/api/README.md).
 
 Fora do MVP: pagamentos, assinaturas, nota fiscal, integração com balança/site, fornecedores (pode entrar como cadastro simples se sobrar tempo).
 
@@ -309,7 +312,8 @@ Fora do MVP: pagamentos, assinaturas, nota fiscal, integração com balança/sit
 
 ## 12. Próximos passos imediatos
 
-1. Revisar este documento juntos e responder a seção 11.
-2. Criar o monorepo (fase 0) e o pipeline de CI.
-3. Escrever o `schema.prisma` inicial + políticas RLS.
-4. Abrir as issues das fases 1 e 2 no GitHub.
+1. Responder a seção 11.
+2. Provisionar o banco (Supabase), aplicar as migrations e criar o usuário `gestock_app`.
+3. Iniciar o front-end (`apps/web`): login, layout azul-marinho, cadastro de ingredientes e registro de venda no celular.
+4. Mover os schemas Zod para `packages/shared` quando o front começar a consumi-los.
+5. Deploy da API (Render/Railway) e do front (Vercel).

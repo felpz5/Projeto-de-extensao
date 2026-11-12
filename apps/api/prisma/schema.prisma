@@ -1,0 +1,335 @@
+// Gestock — modelo de dados (MVP)
+// Convenções:
+// - Toda tabela operacional tem tenant_id e é protegida por Row Level Security (ver migration rls).
+// - Quantidades em numeric(14,3) na unidade base do ingrediente (g, ml ou un).
+// - Dinheiro em numeric(12,2).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // usuário da aplicação (sem BYPASSRLS)
+  directUrl = env("DIRECT_URL") // usuário dono das tabelas (migrations)
+}
+
+// ---------- Enums ----------
+
+enum Role {
+  OWNER
+  MANAGER
+  STAFF
+}
+
+enum MembershipStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum CategoryKind {
+  PRODUCT
+  INGREDIENT
+}
+
+enum BaseUnit {
+  G
+  ML
+  UN
+}
+
+enum PricingMode {
+  UNIT // preço fixo por unidade
+  WEIGHT // preço por kg (ex.: açaí no peso)
+}
+
+enum MovementType {
+  INITIAL
+  PURCHASE
+  SALE_CONSUMPTION
+  MANUAL_OUT
+  LOSS
+  ADJUSTMENT
+}
+
+enum SaleChannel {
+  IN_STORE
+  ONLINE
+}
+
+enum QuantitySource {
+  MEASURED // pesado/informado de verdade
+  RECIPE // veio da receita fixa do produto
+  STANDARD_PORTION // selecionado + porção padrão (estimativa)
+  UNKNOWN // sabemos que foi usado, não sabemos quanto
+}
+
+// ---------- Contas (globais, sem RLS) ----------
+
+model User {
+  id               String    @id @default(uuid()) @db.Uuid
+  name             String
+  email            String    @unique
+  passwordHash     String    @map("password_hash")
+  failedLoginCount Int       @default(0) @map("failed_login_count")
+  lockedUntil      DateTime? @map("locked_until")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  memberships   Membership[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tenantId  String?   @map("tenant_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ---------- Estabelecimentos ----------
+
+model Tenant {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  segment   String?
+  timezone  String   @default("America/Sao_Paulo")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships    Membership[]
+  categories     Category[]
+  ingredients    Ingredient[]
+  products       Product[]
+  recipeItems    RecipeItem[]
+  weightMixItems WeightMixItem[]
+  movements      StockMovement[]
+  sales          Sale[]
+  saleItems      SaleItem[]
+  saleItemIngr   SaleItemIngredient[]
+  auditLogs      AuditLog[]
+
+  @@map("tenants")
+}
+
+model Membership {
+  id        String           @id @default(uuid()) @db.Uuid
+  tenantId  String           @map("tenant_id") @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  role      Role
+  status    MembershipStatus @default(ACTIVE)
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@map("memberships")
+}
+
+// ---------- Catálogo ----------
+
+model Category {
+  id        String       @id @default(uuid()) @db.Uuid
+  tenantId  String       @map("tenant_id") @db.Uuid
+  name      String
+  kind      CategoryKind
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ingredients Ingredient[]
+  products    Product[]
+
+  @@unique([tenantId, kind, name])
+  @@map("categories")
+}
+
+model Ingredient {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  categoryId     String?  @map("category_id") @db.Uuid
+  name           String
+  baseUnit       BaseUnit @map("base_unit")
+  minStock       Decimal  @default(0) @map("min_stock") @db.Decimal(14, 3)
+  costPerUnit    Decimal? @map("cost_per_unit") @db.Decimal(12, 4)
+  leadTimeDays   Int      @default(1) @map("lead_time_days")
+  defaultPortion Decimal? @map("default_portion") @db.Decimal(14, 3)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category        Category?            @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  recipeItems     RecipeItem[]
+  weightMixItems  WeightMixItem[]
+  movements       StockMovement[]
+  saleIngredients SaleItemIngredient[]
+
+  @@unique([tenantId, name])
+  @@map("ingredients")
+}
+
+model Product {
+  id          String      @id @default(uuid()) @db.Uuid
+  tenantId    String      @map("tenant_id") @db.Uuid
+  categoryId  String?     @map("category_id") @db.Uuid
+  name        String
+  pricingMode PricingMode @map("pricing_mode")
+  price       Decimal     @db.Decimal(12, 2) // UNIT: preço unitário · WEIGHT: preço por kg
+  active      Boolean     @default(true)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category    Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  recipeItems RecipeItem[]
+  weightMix   WeightMixItem[]
+  saleItems   SaleItem[]
+
+  @@unique([tenantId, name])
+  @@map("products")
+}
+
+/// Receita fixa: quantidade de ingrediente por 1 unidade do produto (só produtos UNIT).
+model RecipeItem {
+  id           String  @id @default(uuid()) @db.Uuid
+  tenantId     String  @map("tenant_id") @db.Uuid
+  productId    String  @map("product_id") @db.Uuid
+  ingredientId String  @map("ingredient_id") @db.Uuid
+  quantity     Decimal @db.Decimal(14, 3)
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+
+  @@unique([productId, ingredientId])
+  @@map("recipe_items")
+}
+
+/// Composição média de produtos vendidos por peso. Usada APENAS para estimativas.
+model WeightMixItem {
+  id           String  @id @default(uuid()) @db.Uuid
+  tenantId     String  @map("tenant_id") @db.Uuid
+  productId    String  @map("product_id") @db.Uuid
+  ingredientId String  @map("ingredient_id") @db.Uuid
+  percentage   Decimal @db.Decimal(5, 2)
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+
+  @@unique([productId, ingredientId])
+  @@map("weight_mix_items")
+}
+
+// ---------- Estoque (livro-razão) ----------
+
+model StockMovement {
+  id           String       @id @default(uuid()) @db.Uuid
+  tenantId     String       @map("tenant_id") @db.Uuid
+  ingredientId String       @map("ingredient_id") @db.Uuid
+  type         MovementType
+  quantity     Decimal      @db.Decimal(14, 3) // + entrada / − saída
+  unitCost     Decimal?     @map("unit_cost") @db.Decimal(12, 4)
+  occurredAt   DateTime     @default(now()) @map("occurred_at")
+  saleId       String?      @map("sale_id") @db.Uuid
+  isEstimated  Boolean      @default(false) @map("is_estimated")
+  note         String?
+  createdById  String?      @map("created_by_id") @db.Uuid
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+  sale       Sale?      @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, ingredientId, occurredAt])
+  @@index([tenantId, occurredAt])
+  @@index([saleId])
+  @@map("stock_movements")
+}
+
+// ---------- Vendas ----------
+
+model Sale {
+  id           String      @id @default(uuid()) @db.Uuid
+  tenantId     String      @map("tenant_id") @db.Uuid
+  channel      SaleChannel
+  soldAt       DateTime    @default(now()) @map("sold_at")
+  totalAmount  Decimal     @map("total_amount") @db.Decimal(12, 2)
+  totalWeightG Decimal?    @map("total_weight_g") @db.Decimal(10, 1)
+  notes        String?
+  createdById  String?     @map("created_by_id") @db.Uuid
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items     SaleItem[]
+  movements StockMovement[]
+
+  @@index([tenantId, soldAt])
+  @@map("sales")
+}
+
+model SaleItem {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  saleId    String   @map("sale_id") @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  quantity  Decimal  @db.Decimal(10, 3)
+  unitPrice Decimal  @map("unit_price") @db.Decimal(12, 2)
+  weightG   Decimal? @map("weight_g") @db.Decimal(10, 1)
+
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sale        Sale                 @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product     Product              @relation(fields: [productId], references: [id], onDelete: Restrict)
+  ingredients SaleItemIngredient[]
+
+  @@index([saleId])
+  @@index([tenantId, productId])
+  @@map("sale_items")
+}
+
+model SaleItemIngredient {
+  id             String         @id @default(uuid()) @db.Uuid
+  tenantId       String         @map("tenant_id") @db.Uuid
+  saleItemId     String         @map("sale_item_id") @db.Uuid
+  ingredientId   String         @map("ingredient_id") @db.Uuid
+  quantity       Decimal?       @db.Decimal(14, 3)
+  quantitySource QuantitySource @map("quantity_source")
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  saleItem   SaleItem   @relation(fields: [saleItemId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+
+  @@index([saleItemId])
+  @@map("sale_item_ingredients")
+}
+
+// ---------- Auditoria ----------
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String
+  entity    String
+  entityId  String?  @map("entity_id")
+  payload   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@map("audit_logs")
+}
