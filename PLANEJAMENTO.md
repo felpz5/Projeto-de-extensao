@@ -3,7 +3,7 @@
 > Plataforma web de gestão de estoque e previsão de demanda para pequenos estabelecimentos.
 > Primeiro cliente de validação: uma açaiteria parceira (sem uso da marca dela no produto).
 
-Este documento é vivo: toda decisão importante entra aqui (ou em `docs/decisoes/`) antes de virar código.
+Este documento é vivo: toda decisão importante entra aqui antes de virar código.
 
 ---
 
@@ -24,25 +24,25 @@ Transformar vendas e movimentações de estoque em **indicadores, previsões e r
 | Camada | Tecnologia | Por quê |
 |---|---|---|
 | Linguagem | **TypeScript** (front e back) | Uma linguagem só, tipos compartilhados, menos bugs. |
-| Monorepo | **pnpm workspaces** | Front, back e pacote compartilhado no mesmo repositório, um único `install`. |
-| Front-end | **React + Vite** | Rápido de desenvolver e de buildar; ecossistema enorme. |
-| UI | **Tailwind CSS + shadcn/ui** | Componentes prontos e acessíveis, fácil aplicar o tema azul-marinho/branco. |
+| Organização | **Cliente-servidor** (`backend/` + `frontend/`) | Duas aplicações independentes no mesmo repositório, cada uma com seu `package.json`, `.env` e lint. Conversam só por HTTP. |
+| Front-end | **React + Vite** + React Router | Rápido de desenvolver e de buildar; ecossistema enorme. |
+| UI | **Tailwind CSS** + componentes no padrão **shadcn/ui** (Radix) | Componentes acessíveis em `components/ui/`, fácil aplicar o tema azul-marinho/branco. |
 | Estado de servidor | **TanStack Query** | Cache, loading e refetch sem boilerplate. |
-| Formulários | **React Hook Form + Zod** | Validação com o mesmo schema usado no back. |
+| Formulários | **React Hook Form + Zod** | Validação no navegador com os mesmos limites do back (o back valida de novo; erros 422 aparecem no campo). |
 | Gráficos | **Recharts** | Suficiente para o dashboard. |
-| Back-end | **NestJS** (Node 20) | Estrutura modular padronizada (módulos, controllers, services, guards) — ajuda a manter organização com pouco tempo. |
+| Back-end | **Express** (Node 20) em camadas **MVC + Service + Repository** | Simples e conhecido pela equipe; cada camada numa pasta (`routes`, `controllers`, `services`, `repositories`...), sem "mágica" de framework. |
 | ORM / migrations | **Prisma** | Schema declarativo, migrations versionadas, tipagem automática. |
 | Banco | **PostgreSQL 16** | Relacional (estoque e vendas são dados fortemente relacionais), transações, `numeric` exato, **Row Level Security** nativo, funções de data/agrupamento boas para previsão. |
-| Hospedagem do banco | **Supabase (só o Postgres)** ou **Neon** — plano gratuito | Postgres gerenciado com backup, sem precisar de Docker local. Usamos apenas o banco; auth e API são nossas. |
+| Ambiente local | **Docker Compose** (`db` + `migrate` + `backend` + `frontend`) | Um comando sobe tudo igual para a equipe inteira, com o mesmo Postgres 16 e o usuário sem BYPASSRLS. |
+| Hospedagem do banco | **Supabase (só o Postgres)** ou **Neon** — plano gratuito | Postgres gerenciado com backup em produção. Usamos apenas o banco; auth e API são nossas. |
 | Autenticação | Própria: **Argon2** + **JWT** (access curto + refresh em cookie httpOnly) | Controle total, sem dependência de terceiros. |
 | Testes | **Vitest** (front e unidades) + **Jest/Supertest** (API, padrão Nest) | Testar principalmente regras de estoque, isolamento de tenant e previsão. |
 | Qualidade | **ESLint + Prettier + Husky + lint-staged + commitlint** | Padrão de código e de commit automático. |
-| CI | **GitHub Actions** | Lint, typecheck, testes e build em todo PR. |
 | Deploy (sugestão) | Front: **Vercel** · API: **Render** ou **Railway** | Planos gratuitos/baratos, deploy a partir do GitHub. |
 
-> **Por que não Supabase completo (auth + API automática)?** A decisão é desenvolver front e back nós mesmos. Mantemos Postgres + RLS (o que o Supabase tem de melhor para nós) e escrevemos a API em NestJS, o que dá mais aprendizado e controle sobre regras de negócio (baixa de estoque, previsão).
+> **Por que não Supabase completo (auth + API automática)?** A decisão é desenvolver front e back nós mesmos. Mantemos Postgres + RLS (o que o Supabase tem de melhor para nós) e escrevemos a API em Express, o que dá mais aprendizado e controle sobre regras de negócio (baixa de estoque, previsão).
 
-> **Ambiente local atual:** Node 20.18 e npm 10 instalados; sem Docker e sem GitHub CLI. Por isso a sugestão de banco gerenciado. Se quiserem, dá para instalar Postgres local ou Docker depois.
+> **Ambiente local:** Docker Desktop + `docker compose up --build -d` (ver README da raiz). Para desenvolver com recarga automática, sobe só o banco no Docker e roda back e front com `npm run dev`.
 
 ---
 
@@ -50,40 +50,42 @@ Transformar vendas e movimentações de estoque em **indicadores, previsões e r
 
 ### 3.1 Estrutura do repositório
 
+Arquitetura **cliente-servidor**: duas aplicações independentes, cada uma com o próprio
+`package.json`, `.env` e configuração. A raiz só agrupa as partes.
+
 ```
 gestock/
-├── apps/
-│   ├── web/                 # React + Vite (front-end)
-│   │   └── src/
-│   │       ├── app/         # rotas, layout, providers
-│   │       ├── features/    # uma pasta por domínio (auth, produtos, estoque, vendas, dashboard, previsao)
-│   │       ├── components/  # componentes genéricos (ui/ = shadcn)
-│   │       └── lib/         # cliente HTTP, utils
-│   └── api/                 # NestJS (back-end)
-│       ├── prisma/          # schema.prisma, migrations, seed
-│       └── src/
-│           ├── common/      # guards, interceptors, filtros de erro, decorators
-│           ├── infra/       # prisma service, config, logger
-│           └── modules/
-│               ├── auth/
-│               ├── tenants/         # estabelecimentos e membros
-│               ├── catalog/         # produtos, ingredientes, categorias, unidades, receitas
-│               ├── inventory/       # movimentações e saldo
-│               ├── sales/           # vendas presenciais e online
-│               ├── dashboard/
-│               └── forecasting/     # previsão e recomendação de reposição
-├── packages/
-│   └── shared/              # schemas Zod, enums e tipos usados por web e api
-├── docs/                    # este arquivo, decisões (ADRs), diagramas
-└── .github/workflows/       # CI
+├── backend/                 # SERVIDOR — Express + Prisma (ver backend/README.md)
+│   ├── server.ts            # sobe o HTTP
+│   ├── app.ts               # monta o Express (segurança, rotas, erros)
+│   ├── config/              # env validado (Zod), Prisma + withContext (RLS)
+│   ├── routes/              # URL + middlewares → controller
+│   ├── controllers/         # HTTP: valida entrada, chama service, devolve status
+│   ├── services/            # regras de negócio (+ motor de previsão e regras de consumo)
+│   ├── repositories/        # acesso ao banco via Prisma
+│   ├── middlewares/         # authenticate, authorize, rate limit, erros
+│   ├── validations/         # schemas Zod
+│   ├── types/               # DTOs e tipos de domínio
+│   ├── utils/               # AppError, JWT, senha, datas, logger
+│   ├── prisma/              # schema.prisma, migrations, seed
+│   └── test/                # unit/ e e2e/
+├── frontend/                # CLIENTE — React + Vite + nginx no Docker
+│   └── src/
+│       ├── app/             # rotas, layout, providers
+│       ├── features/        # uma pasta por domínio (auth, dashboard, sales, inventory, ingredients, products, forecast, settings)
+│       ├── components/      # componentes genéricos (ui/ = shadcn)
+│       └── lib/             # cliente HTTP (renova a sessão sozinho), tipos da API, formatação, schemas
+├── docker-compose.yml       # sobe db + migrate + backend + frontend
+├── PLANEJAMENTO.md          # este arquivo
 ```
 
-### 3.2 Camadas do back-end (dentro de cada módulo)
+### 3.2 Camadas do back-end (uma pasta por camada)
 
 ```
-Controller  →  recebe HTTP, valida DTO (Zod), checa permissão
-Service     →  regra de negócio (ex.: venda gera baixa de estoque)
-Repository  →  acesso ao banco via Prisma (sempre dentro do contexto do tenant)
+Route       →  URL, autenticação e papel exigido (middlewares)
+Controller  →  recebe HTTP, valida DTO (Zod), devolve o status
+Service     →  regra de negócio (ex.: venda gera baixa de estoque); abre a transação do tenant
+Repository  →  acesso ao banco via Prisma (sempre com a transação `tx` do tenant)
 ```
 
 Regra: controller não fala com Prisma; service não conhece HTTP.
@@ -92,10 +94,12 @@ Regra: controller não fala com Prisma; service não conhece HTTP.
 
 ```
 Front (JWT no header)
-  → API: AuthGuard valida token → extrai user_id e tenant_id ativo
-  → TenantGuard confere que o usuário é membro do tenant e tem a permissão
-  → Service abre transação e executa  SET LOCAL app.tenant_id = '<uuid>'
-  → Postgres aplica RLS: qualquer SELECT/UPDATE só vê linhas desse tenant
+  → routes: authenticate valida o token → extrai user_id e tenant_id ativo
+            e confere no banco que o usuário é membro ATIVO do tenant (papel atualizado)
+  → routes: authorize(...) confere o papel exigido pela rota
+  → controller valida o body/query com Zod e chama o service
+  → service abre a transação com withContext → SET LOCAL app.tenant_id = '<uuid>'
+  → repository consulta; o Postgres aplica RLS: qualquer SELECT/UPDATE só vê linhas desse tenant
 ```
 
 ---
@@ -115,19 +119,24 @@ Front (JWT no header)
 ### 4.2 Autenticação
 - Senha com **Argon2id**.
 - **Access token** JWT de ~15 min (no header `Authorization`).
-- **Refresh token** de ~7 dias em cookie `httpOnly`, `Secure`, `SameSite=Strict`, com rotação e armazenamento do hash no banco (permite logout/revogação).
-- Rate limiting no login e cadastro (`@nestjs/throttler`).
-- Bloqueio temporário após várias tentativas erradas.
+- **Refresh token** de ~7 dias em cookie `httpOnly`, `Secure`, `SameSite=Strict`, com rotação e armazenamento do hash no banco (permite logout/revogação). Duas abas renovando ao mesmo tempo não derrubam a sessão (janela de 30 s).
+- Rate limiting no login e cadastro (`express-rate-limit`).
+- Bloqueio temporário após várias tentativas erradas (sem revelar se o e-mail existe).
+- Senha criada pelo dono para um funcionário é **provisória**: troca obrigatória no primeiro acesso (`POST /auth/change-password`).
+- Esqueceu a senha: dono/gerente define uma **senha provisória** (`POST /tenant/members/:id/password`), que encerra as sessões da pessoa. Só vale para contas usadas apenas naquele estabelecimento (o dono de uma loja não pode tomar a conta de quem é dono de outra). Recuperação por e-mail ainda não existe.
+- Trocar o próprio e-mail (que é o login) exige a senha atual.
 
 ### 4.3 Autorização (papéis por estabelecimento)
 
 | Papel | Pode |
 |---|---|
-| `OWNER` | Tudo, inclusive convidar/remover membros e editar dados do estabelecimento. |
-| `MANAGER` | Catálogo, receitas, estoque, vendas, relatórios, previsão. |
-| `STAFF` | Registrar vendas e entradas de estoque; consultar estoque. |
+| `OWNER` | Tudo, inclusive editar dados do estabelecimento e gerenciar gerentes. |
+| `MANAGER` | Catálogo, receitas, estoque (ajustes, contagem, estorno), vendas (cancelar/corrigir qualquer uma), relatórios, previsão, auditoria e os **funcionários** da equipe (adicionar, desativar, redefinir senha). |
+| `STAFF` | Registrar vendas e **compras** de mercadoria; ver o **próprio caixa** do dia e cancelar/corrigir a **própria** venda nos primeiros 15 minutos; consultar estoque. **Não** vê faturamento, custos, valor do estoque, histórico de vendas nem relatórios — esses dados nem saem da API para ele. |
 
-Um usuário pode pertencer a mais de um estabelecimento (tabela `memberships`).
+Venda **nunca é apagada**: erro vira cancelamento (com motivo, quem e quando, na auditoria) ou correção (cancela a original e registra a certa, ligada a ela). O estoque que a venda baixou é estornado.
+
+Um usuário pode pertencer a mais de um estabelecimento (tabela `memberships`). Quando o dono adiciona um e-mail que **já tem conta**, isso vira um **convite**: a pessoa só entra no estabelecimento depois de aceitar.
 
 ### 4.4 Outras medidas
 - Validação de toda entrada com **Zod** (whitelist; campos extras rejeitados).
@@ -146,9 +155,9 @@ Um usuário pode pertencer a mais de um estabelecimento (tabela `memberships`).
 Convenções: `id uuid`, `created_at`, `updated_at`; quantidades em `numeric(14,3)` na **unidade base** do item (g, ml ou un); dinheiro em `numeric(12,2)`.
 
 ### 5.1 Contas
-- **users** — id, name, email (único), password_hash, created_at
+- **users** — id, name, email (único), password_hash, must_change_password, created_at
 - **tenants** — id, name, slug, segment (açaiteria, sorveteria, mercado...), timezone, created_at
-- **memberships** — user_id, tenant_id, role (`OWNER|MANAGER|STAFF`), status
+- **memberships** — user_id, tenant_id, role (`OWNER|MANAGER|STAFF`), status (`ACTIVE|DISABLED|INVITED`)
 - **refresh_tokens** — user_id, token_hash, expires_at, revoked_at
 
 ### 5.2 Catálogo
@@ -162,11 +171,11 @@ Convenções: `id uuid`, `created_at`, `updated_at`; quantidades em `numeric(14,
 ### 5.3 Estoque (livro-razão)
 - **stock_movements** — tenant_id, ingredient_id, type, quantity (+ entrada / − saída), unit_cost, occurred_at, sale_id (opcional), **is_estimated** (bool), note, created_by
   - `type`: `INITIAL` · `PURCHASE` · `SALE_CONSUMPTION` · `MANUAL_OUT` · `LOSS` · `ADJUSTMENT`
-- **Saldo** = soma das movimentações por ingrediente (view `stock_levels`). Nunca editamos saldo direto; ajuste é uma movimentação nova → histórico completo e auditável.
-- Inventário físico (contagem) gera um `ADJUSTMENT` com a diferença — isso também **corrige o erro das estimativas** periodicamente.
+- **Saldo** = soma das movimentações por ingrediente (view `stock_levels`). Nunca editamos saldo direto nem apagamos lançamentos; ajuste é uma movimentação nova → histórico completo e auditável. Lançamento digitado errado é **estornado** (movimentação inversa, campos `reverses_id`/`reversed_at`).
+- Inventário físico (contagem) gera um `ADJUSTMENT` com a diferença em relação ao saldo **na data da contagem** — isso também **corrige o erro das estimativas** periodicamente. Na previsão, os ajustes corrigem o consumo registrado proporcionalmente (para cima ou para baixo), sem criar pico no dia da contagem.
 
 ### 5.4 Vendas
-- **sales** — tenant_id, channel (`IN_STORE|ONLINE`), sold_at, total_amount, **total_weight_g** (opcional), notes, created_by
+- **sales** — tenant_id, channel (`IN_STORE|ONLINE`), sold_at, total_amount, **total_weight_g** (opcional), notes, created_by, **payment_method** (`CASH|PIX|CREDIT_CARD|DEBIT_CARD|VOUCHER|OTHER`), **status** (`COMPLETED|CANCELED`), canceled_at/by, cancel_reason, corrects_id (correção)
 - **sale_items** — sale_id, product_id, quantity, unit_price, weight_g (opcional)
 - **sale_item_ingredients** — sale_item_id, ingredient_id, quantity (opcional), **quantity_source**:
   - `MEASURED` — pesado/informado de verdade
@@ -256,10 +265,10 @@ Cada sugestão exibe: quantidade, nível de confiança, quantos dias de históri
 ## 9. Organização Git / GitHub
 
 ### 9.1 Branches
-- `main` — sempre estável, protegida (só via PR, CI verde obrigatório).
-- `develop` — integração do que está pronto.
-- `feat/<escopo>-<descricao>` · `fix/...` · `chore/...` · `docs/...`
-  Ex.: `feat/sales-registro-presencial`
+- `main` — versão estável (a que será apresentada). Protegida: só recebe PR vindo da `develop`, revisado e com testes passando.
+- `develop` — branch comum de trabalho: a equipe faz push direto aqui (sempre `git pull` antes).
+- Branches de funcionalidade são **opcionais**, para entregas grandes: `feat/<escopo>-<descricao>`, `fix/...`, `docs/...`
+  Ex.: `feat/backend-base` → PR para `develop`.
 
 ### 9.2 Commits — Conventional Commits
 ```
@@ -271,7 +280,8 @@ docs: atualizar modelo de dados
 ### 9.3 Fluxo de trabalho
 1. Toda tarefa vira uma **Issue** (com label: `frontend`, `backend`, `banco`, `segurança`, `previsão`).
 2. **GitHub Projects** (quadro Kanban): Backlog → A fazer → Em andamento → Revisão → Pronto.
-3. Branch a partir de `develop` → PR → revisão de pelo menos 1 colega → merge (squash).
+3. Trabalho do dia a dia direto na `develop`; entregas grandes em branch própria → PR para `develop`.
+   Ao fechar uma fase: PR `develop` → `main`.
 4. Template de PR com checklist (testes, migration, prints de tela).
 5. **Milestones** = fases do roadmap abaixo.
 
@@ -281,16 +291,18 @@ docs: atualizar modelo de dados
 
 > Ajustar datas conforme o prazo do projeto de extensão.
 
-| Fase | Entregas | Itens da especificação |
-|---|---|---|
-| **0 — Fundação** | Monorepo, lint, CI, banco provisionado, Prisma, design system base, tela de login vazia | — |
-| **1 — Contas e isolamento** | Cadastro/login, criação de estabelecimento, convite de funcionário, papéis, RLS + teste de isolamento | 1, 2 |
-| **2 — Catálogo** | Categorias, ingredientes, produtos (unidade/peso), receitas, mix por peso | 3, 4 |
-| **3 — Estoque** | Estoque inicial, compras/entradas, saídas, ajustes, inventário, histórico, saldo, alerta de estoque baixo | 5, 6, 10 |
-| **4 — Vendas** | Venda presencial (valor + peso), venda online (ingredientes selecionados), baixa automática/estimada, histórico e filtros | 7, 8 |
-| **5 — Dashboard** | Total de vendas, nº de pedidos, mais vendidos, estoque baixo, movimentações recentes | 9 |
-| **6 — Previsão** | Previsão de demanda, sugestão de reposição, indicadores de confiança | 11 |
-| **7 — Validação** | Seed com dados realistas, uso real na açaiteria, ajustes, deploy, documentação final | — |
+| Fase | Entregas | Itens da especificação | Back-end | Front-end |
+|---|---|---|---|---|
+| **0 — Fundação** | Repositório cliente-servidor, lint, banco provisionado, Prisma, design system base, tela de login | — | ✅ | ✅ |
+| **1 — Contas e isolamento** | Cadastro/login, criação de estabelecimento, convite de funcionário, papéis, RLS + teste de isolamento | 1, 2 | ✅ | ✅ |
+| **2 — Catálogo** | Categorias, ingredientes, produtos (unidade/peso), receitas, mix por peso | 3, 4 | ✅ | ✅ |
+| **3 — Estoque** | Estoque inicial, compras/entradas, saídas, ajustes, inventário, histórico, saldo, alerta de estoque baixo | 5, 6, 10 | ✅ | ✅ |
+| **4 — Vendas** | Venda presencial (valor + peso), venda online (ingredientes selecionados), baixa automática/estimada, histórico e filtros | 7, 8 | ✅ | ✅ |
+| **5 — Dashboard** | Total de vendas, nº de pedidos, mais vendidos, estoque baixo, movimentações recentes | 9 | ✅ | ✅ |
+| **6 — Previsão** | Previsão de demanda, sugestão de reposição, indicadores de confiança | 11 | ✅ | ✅ |
+| **7 — Validação** | Seed com dados realistas, uso real na açaiteria, ajustes, deploy, documentação final | — | 🟨 seed pronto | 🟨 telas prontas, falta uso real |
+
+Detalhes: [backend/README.md](backend/README.md) (endpoints, segurança) e [frontend/README.md](frontend/README.md) (telas, permissões).
 
 Fora do MVP: pagamentos, assinaturas, nota fiscal, integração com balança/site, fornecedores (pode entrar como cadastro simples se sobrar tempo).
 
@@ -309,7 +321,8 @@ Fora do MVP: pagamentos, assinaturas, nota fiscal, integração com balança/sit
 
 ## 12. Próximos passos imediatos
 
-1. Revisar este documento juntos e responder a seção 11.
-2. Criar o monorepo (fase 0) e o pipeline de CI.
-3. Escrever o `schema.prisma` inicial + políticas RLS.
-4. Abrir as issues das fases 1 e 2 no GitHub.
+1. Responder a seção 11.
+2. Provisionar o banco (Supabase), aplicar as migrations e criar o usuário `gestock_app`.
+3. Testar o front com a açaiteria no celular (registro de venda no balcão e entrada de mercadoria) e ajustar.
+4. Os tipos da API estão copiados em `frontend/src/lib/types.ts`: se o contrato mudar muito, avaliar gerar a partir de uma documentação OpenAPI.
+5. Deploy da API (Render/Railway) e do front (Vercel).

@@ -1,0 +1,183 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Identidade visual (PLANEJAMENTO.md, seção 8): fundo azul-marinho, texto branco. */
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body {
+    @apply bg-navy-950 text-white antialiased;
+    min-height: 100%;
+  }
+
+  /* Luz sutil no topo: dá profundidade sem pesar (fixa, não rola). */
+  body {
+    background-image:
+      radial-gradient(900px 500px at 85% -10%, rgba(56, 189, 248, 0.07), transparent 60%),
+      radial-gradient(700px 400px at 0% 0%, rgba(99, 102, 241, 0.05), transparent 60%);
+    background-attachment: fixed;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Rolagem fina e discreta (computador). */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #1e3a6b transparent;
+  }
+
+  /* Números alinhados em tabelas e valores. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-navy-950;
+  }
+
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+}
+
+/*
+ * Animações de entrada disparadas pela rolagem (useReveal + <Reveal>).
+ * O elemento começa escondido/deslocado e ganha .is-visible quando entra na tela.
+ * Filhos podem reagir ao pai visível: barras que crescem, linhas que se desenham, contadores.
+ */
+@layer components {
+  [data-reveal] {
+    opacity: 0;
+    transition:
+      opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+      filter 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    transition-delay: var(--delay, 0ms);
+  }
+  [data-reveal='up'] {
+    transform: translateY(36px);
+  }
+  [data-reveal='down'] {
+    transform: translateY(-24px);
+  }
+  [data-reveal='left'] {
+    transform: translateX(-48px);
+  }
+  [data-reveal='right'] {
+    transform: translateX(48px);
+  }
+  [data-reveal='zoom'] {
+    transform: scale(0.9);
+  }
+  [data-reveal='blur'] {
+    filter: blur(12px);
+    transform: translateY(12px);
+  }
+  /* Só marca o grupo como visível (para os filhos animarem); ele mesmo não se move. */
+  [data-reveal='group'] {
+    opacity: 1;
+  }
+  [data-reveal].is-visible {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+
+  /* Barra que cresce de baixo para cima. */
+  .grow-bar {
+    transform: scaleY(0);
+    transform-origin: bottom;
+    transition: transform 1s cubic-bezier(0.16, 1, 0.3, 1);
+    transition-delay: var(--delay, 0ms);
+  }
+  .is-visible .grow-bar {
+    transform: scaleY(1);
+  }
+
+  /* Barra que preenche da esquerda para a direita. */
+  .fill-x {
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 1.4s cubic-bezier(0.65, 0, 0.35, 1);
+    transition-delay: var(--delay, 0ms);
+  }
+  .is-visible .fill-x {
+    transform: scaleX(1);
+  }
+
+  /* Linha SVG que se desenha (use pathLength="1" no <path>). */
+  .draw-line {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    transition: stroke-dashoffset 2s cubic-bezier(0.65, 0, 0.35, 1);
+    transition-delay: var(--delay, 0ms);
+  }
+  .is-visible .draw-line {
+    stroke-dashoffset: 0;
+  }
+
+  /* Ponto que aparece com "pulo". */
+  .pop-in {
+    opacity: 0;
+    transform: scale(0);
+    transform-box: fill-box;
+    transform-origin: center;
+    transition:
+      opacity 0.4s ease,
+      transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition-delay: var(--delay, 0ms);
+  }
+  .is-visible .pop-in {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .fade-in {
+    opacity: 0;
+    transition: opacity 1.2s ease;
+    transition-delay: var(--delay, 0ms);
+  }
+  .is-visible .fade-in {
+    opacity: 1;
+  }
+
+  /* Texto com gradiente animado. */
+  .text-gradient {
+    background-image: linear-gradient(90deg, #38bdf8, #a5f3fc, #ffffff, #38bdf8);
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Quem pediu menos movimento no sistema vê tudo pronto, sem animação. */
+  @media (prefers-reduced-motion: reduce) {
+    [data-reveal],
+    .grow-bar,
+    .fill-x,
+    .draw-line,
+    .pop-in,
+    .fade-in {
+      opacity: 1 !important;
+      transform: none !important;
+      filter: none !important;
+      stroke-dashoffset: 0 !important;
+      transition: none !important;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
