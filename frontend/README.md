@@ -30,18 +30,21 @@ exemplo, rode o seed e entre com `demo@gestock.app` / `gestock123`.
 | `/entrar`, `/cadastro` | Login e cadastro do estabelecimento (quem cadastra vira dono) | público |
 | `/trocar-senha` | Obrigatória no primeiro acesso com senha provisória | logado |
 | `/` | Painel: faturamento, pedidos, mais vendidos, sugestões de compra, alertas, últimas movimentações | todos (funcionário vê só o estoque) |
-| `/vender` | Registro de venda — balcão (peso/valor) ou online (ingredientes escolhidos) | todos |
-| `/vendas` | Histórico com filtros, totais, detalhe da venda (baixas de estoque) e exclusão | dono e gerente |
-| `/estoque` | Saldo por ingrediente, entradas, saídas/perdas | todos (funcionário só lança entradas) |
+| `/vender` | Registro de venda — balcão (peso/valor) ou online (ingredientes escolhidos), com **forma de pagamento** obrigatória e botão **Desfazer** logo após registrar · `?corrigir=<id>` abre a venda para correção | todos |
+| `/caixa` | **Fechamento de caixa** do dia: total por forma de pagamento, canceladas, lista para conferir, impressão | todos (funcionário vê só o próprio; corrige/cancela a própria venda nos primeiros 15 min) |
+| `/vendas` | Histórico com filtros (canal, pagamento, situação), lucro bruto estimado, detalhe, **cancelar com motivo** e **corrigir** (venda nunca é apagada), exportar CSV | dono e gerente |
+| `/estoque` | Saldo por ingrediente, entradas, saídas/perdas | todos (funcionário só lança compra e não vê valores) |
 | `/estoque/contagem` | Contagem física → ajustes com a diferença | dono e gerente |
 | `/movimentacoes` | Livro-razão com filtros e **estorno** de lançamentos | todos (estorno: dono e gerente) |
 | `/ingredientes` | Cadastro (unidade, mínimo, custo, prazo de reposição, porção padrão) | todos (edição: dono e gerente) |
-| `/produtos`, `/produtos/:id` | Cadastro; **receita** (por unidade) ou **composição média** (por peso) | todos (edição: dono e gerente) |
-| `/previsao` | Reposição de ingredientes e demanda de produtos, com faixa de incerteza e confiança | dono e gerente |
-| `/configuracoes` | Estabelecimento, equipe, categorias, minha conta (senha e convites) | todos (abas e edição por papel) |
+| `/produtos`, `/produtos/:id` | Cadastro; **receita** (por unidade) ou **composição média** (por peso); **custo e margem** pelo custo dos ingredientes | todos (edição e margem: dono e gerente) |
+| `/previsao` | Reposição de ingredientes e demanda de produtos, com faixa de incerteza e confiança · **lista de compras** (WhatsApp, copiar, CSV) | dono e gerente |
+| `/relatorios` | Perdas e ajustes (precisão das estimativas), histórico de contagens, exportar planilhas (vendas, movimentações, estoque, margem) | dono e gerente |
+| `/lojas` | **Minhas lojas**: resumo lado a lado de todos os estabelecimentos | quem é dono/gerente de mais de um |
+| `/configuracoes` | Estabelecimento, equipe (adicionar, papel, **redefinir senha**), categorias, **auditoria**, minha conta (nome, e-mail, senha, convites) | todos (abas e edição por papel; gerente gerencia só funcionários) |
 
-Esconder um botão não é segurança: a API confere o papel em toda rota. O front só evita mostrar
-o que daria 403.
+Esconder um botão não é segurança: a API confere o papel em toda rota e **não manda** dados
+financeiros para o funcionário. O front só evita mostrar o que daria 403.
 
 ## Estrutura
 
@@ -67,9 +70,16 @@ src/
 
 ## PWA (app instalável)
 
-O Gestock pode ser instalado no celular e no computador (botão **Instalar app** no menu e na
-apresentação; no iPhone: Safari → Compartilhar → Adicionar à Tela de Início). Configuração em
-[vite.config.ts](vite.config.ts) (`VitePWA`) e [src/lib/pwa.ts](src/lib/pwa.ts).
+O Gestock pode ser instalado no celular e no computador — **só depois do login** (botão
+**Instalar app** no menu; no iPhone: Safari → Compartilhar → Adicionar à Tela de Início).
+Configuração em [vite.config.ts](vite.config.ts) (`VitePWA`) e [src/lib/pwa.ts](src/lib/pwa.ts).
+
+- O `<link rel="manifest">` **não vai no HTML**: o app só o adiciona com sessão aberta
+  (`useManifestWhileLoggedIn`) e o remove ao sair. Sem manifesto o navegador nem oferece a
+  instalação (nem o ícone da barra de endereço).
+- Quem instala abre o app **já logado**: o app instalado usa o mesmo cookie de sessão do navegador
+  (Chrome/Edge no computador e no Android). No iPhone o app da tela inicial tem armazenamento
+  próprio: pede o login uma vez.
 
 - O service worker guarda só a **casca** do app (HTML, JS, CSS, ícones, fonte): abre rápido e
   abre mesmo sem internet. **Respostas da API nunca vão para o cache** (dados da loja).

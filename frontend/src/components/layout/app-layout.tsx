@@ -23,12 +23,15 @@ export function AppLayout() {
   // Fuso do estabelecimento: as páginas só renderizam depois dele (datas e "hoje" dos filtros).
   // Se a consulta falhar, segue com o fuso do navegador em vez de travar o app.
   const tenant = useTenant();
-  const items = visibleNav(isManager);
+  const me = useMe();
+  const managedStores =
+    me.data?.tenants.filter((t) => t.role === 'OWNER' || t.role === 'MANAGER').length ?? 0;
+  const items = visibleNav(isManager, managedStores);
 
   return (
-    <div className="min-h-dvh lg:pl-64">
+    <div className="min-h-dvh lg:pl-64 print:pl-0">
       {/* Menu lateral (computador) */}
-      <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col border-r border-navy-700 bg-navy-900 lg:flex">
+      <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col print:!hidden border-r border-navy-700 bg-navy-900 lg:flex">
         <div className="p-5">
           <Logo />
         </div>
@@ -46,7 +49,7 @@ export function AppLayout() {
       </aside>
 
       {/* Barra superior */}
-      <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-navy-700 bg-navy-950/90 px-4 backdrop-blur">
+      <header className="sticky top-0 z-30 flex h-14 print:hidden items-center gap-3 border-b border-navy-700 bg-navy-950/90 px-4 backdrop-blur">
         <Logo className="lg:hidden" />
         <button
           type="button"
@@ -68,7 +71,7 @@ export function AppLayout() {
       {/* Barra inferior (celular) */}
       <nav
         aria-label="Atalhos"
-        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-navy-700 bg-navy-900 pb-[env(safe-area-inset-bottom)] lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-navy-700 bg-navy-900 pb-[env(safe-area-inset-bottom)] lg:hidden print:hidden"
       >
         {items
           .filter((i) => i.mobile)
@@ -160,6 +163,7 @@ function TenantSwitcher({ open, onOpenChange }: { open: boolean; onOpenChange: (
   };
 
   const invitations = me.data?.invitations ?? [];
+  const managed = me.data?.tenants.filter((t) => t.role === 'OWNER' || t.role === 'MANAGER').length ?? 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title="Estabelecimentos" description="Escolha onde você quer trabalhar agora.">
@@ -183,6 +187,18 @@ function TenantSwitcher({ open, onOpenChange }: { open: boolean; onOpenChange: (
           </li>
         ))}
       </ul>
+      {managed > 1 && (
+        <Button
+          variant="secondary"
+          className="mt-4 w-full"
+          onClick={() => {
+            onOpenChange(false);
+            navigate('/lojas');
+          }}
+        >
+          <Building2 aria-hidden /> Ver resumo de todas as lojas
+        </Button>
+      )}
       {invitations.length > 0 && (
         <p className="mt-4 text-sm text-muted">
           Você tem {invitations.length} convite(s) pendente(s).{' '}

@@ -10,6 +10,7 @@ import { ChangePasswordForm } from '@/features/auth/change-password-form';
 import { api, errorMessage } from '@/lib/api';
 import { formatDate, ROLE_LABEL } from '@/lib/format';
 import { qk, useMe } from '@/lib/queries';
+import { ProfileForm } from './profile-form';
 
 export function AccountTab() {
   const { session, switchTenant } = useAuth();
@@ -37,21 +38,11 @@ export function AccountTab() {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
-        <CardHeader title="Meus dados" />
-        <dl className="flex flex-col gap-3 text-sm">
-          <div>
-            <dt className="text-muted">Nome</dt>
-            <dd className="font-medium">{session?.user.name}</dd>
-          </div>
-          <div>
-            <dt className="text-muted">E-mail</dt>
-            <dd className="font-medium">{session?.user.email}</dd>
-          </div>
-          <div>
-            <dt className="text-muted">Acesso neste estabelecimento</dt>
-            <dd className="font-medium">{session && ROLE_LABEL[session.tenant.role]}</dd>
-          </div>
-        </dl>
+        <CardHeader
+          title="Meus dados"
+          description={session && `Seu acesso neste estabelecimento: ${ROLE_LABEL[session.tenant.role]}`}
+        />
+        <ProfileForm />
       </Card>
 
       <Card>

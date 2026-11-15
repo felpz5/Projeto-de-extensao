@@ -1,13 +1,16 @@
 import type { CookieOptions, Request, Response } from 'express';
 import { env } from '@/config/env';
 import { authService, REFRESH_RACE } from '@/services/auth.service';
+import { storesService } from '@/services/stores.service';
 import type { IssuedSession } from '@/types/auth.types';
 import { AppError } from '@/utils/app-error';
 import {
   changePasswordSchema,
   loginSchema,
   registerSchema,
+  storesOverviewQuery,
   switchTenantSchema,
+  updateProfileSchema,
 } from '@/validations/auth.validation';
 import { uuid } from '@/validations/common.validation';
 
@@ -74,6 +77,18 @@ export class AuthController {
 
   async me(req: Request, res: Response) {
     return res.json(await authService.me(req.user!));
+  }
+
+  /** Editar o próprio nome/e-mail (e-mail exige a senha atual). */
+  async updateProfile(req: Request, res: Response) {
+    const data = updateProfileSchema.parse(req.body);
+    return res.json(await authService.updateProfile(req.user!, data));
+  }
+
+  /** Resumo de todas as lojas em que a pessoa é dona ou gerente. */
+  async stores(req: Request, res: Response) {
+    const { days } = storesOverviewQuery.parse(req.query);
+    return res.json(await storesService.overview(req.user!, days));
   }
 
   /** Troca a senha; encerra as outras sessões e devolve uma sessão nova para este aparelho. */

@@ -1,8 +1,11 @@
 import type { Request, Response } from 'express';
+import { auditService } from '@/services/audit.service';
 import { tenantService } from '@/services/tenant.service';
 import { uuid } from '@/validations/common.validation';
 import {
   addMemberSchema,
+  auditQuery,
+  resetMemberPasswordSchema,
   updateMemberSchema,
   updateTenantSchema,
 } from '@/validations/tenant.validation';
@@ -36,6 +39,20 @@ export class TenantController {
     const userId = uuid.parse(req.params.userId);
     await tenantService.removeMember(req.user!, userId);
     return res.status(204).send();
+  }
+
+  /** Senha provisória para um membro que esqueceu a dele. */
+  async resetMemberPassword(req: Request, res: Response) {
+    const userId = uuid.parse(req.params.userId);
+    const { password } = resetMemberPasswordSchema.parse(req.body);
+    await tenantService.resetMemberPassword(req.user!, userId, password);
+    return res.status(204).send();
+  }
+
+  /** Auditoria: quem fez o quê e quando. */
+  async audit(req: Request, res: Response) {
+    const query = auditQuery.parse(req.query);
+    return res.json(await auditService.list(req.user!, query));
   }
 }
 

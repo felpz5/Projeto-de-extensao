@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import { registerSW } from 'virtual:pwa-register';
 
@@ -30,6 +30,34 @@ export function startPwa() {
       if (registration) setInterval(() => registration.update().catch(() => undefined), 60 * 60_000);
     },
   });
+}
+
+// ---------- Manifesto só com sessão ----------
+
+const MANIFEST_HREF = '/manifest.webmanifest';
+
+/**
+ * Coloca o <link rel="manifest"> enquanto a pessoa está logada e tira ao sair. Sem manifesto o
+ * navegador não oferece "Instalar app" — nem o botão nosso, nem o ícone da barra de endereço.
+ * Quem instala abre o app já logado: o app instalado usa o mesmo cookie de sessão do navegador
+ * (Chrome/Edge no computador e no Android).
+ */
+export function useManifestWhileLoggedIn(loggedIn: boolean) {
+  useEffect(() => {
+    if (!loggedIn) return;
+    let link = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'manifest';
+      link.href = MANIFEST_HREF;
+      document.head.appendChild(link);
+    }
+    return () => {
+      document.querySelector('link[rel="manifest"]')?.remove();
+      deferredPrompt = null;
+      notifyInstall();
+    };
+  }, [loggedIn]);
 }
 
 // ---------- Instalação ("Adicionar à tela inicial") ----------

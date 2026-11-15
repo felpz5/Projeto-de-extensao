@@ -11,7 +11,18 @@ tenantRoutes.use(authenticate);
 tenantRoutes.get('/', tenantController.show);
 tenantRoutes.patch('/', authorize('OWNER'), tenantController.update);
 
+/**
+ * Equipe: dono gerencia todos; gerente gerencia só funcionários (regra no service).
+ */
 tenantRoutes.get('/members', authorize(...MANAGERS), tenantController.listMembers);
-tenantRoutes.post('/members', authorize('OWNER'), tenantController.addMember);
-tenantRoutes.patch('/members/:userId', authorize('OWNER'), tenantController.updateMember);
-tenantRoutes.delete('/members/:userId', authorize('OWNER'), tenantController.removeMember);
+tenantRoutes.post('/members', authorize(...MANAGERS), tenantController.addMember);
+tenantRoutes.patch('/members/:userId', authorize(...MANAGERS), tenantController.updateMember);
+tenantRoutes.delete('/members/:userId', authorize(...MANAGERS), tenantController.removeMember);
+tenantRoutes.post(
+  '/members/:userId/password',
+  authorize(...MANAGERS),
+  tenantController.resetMemberPassword,
+);
+
+/** Auditoria do estabelecimento (dono e gerente). */
+tenantRoutes.get('/audit', authorize(...MANAGERS), tenantController.audit);

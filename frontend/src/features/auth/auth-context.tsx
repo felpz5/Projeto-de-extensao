@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { api, onSessionChange, renew, setSession } from '@/lib/api';
+import { useManifestWhileLoggedIn } from '@/lib/pwa';
 import type { Role, Session } from '@/lib/types';
 
 /** offline = ainda não deu para confirmar a sessão (sem internet/API fora); tenta de novo sozinho. */
@@ -92,6 +93,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('online', onOnline);
     };
   }, []);
+
+  // PWA instalável só com sessão aberta (ver lib/pwa.ts).
+  useManifestWhileLoggedIn(status === 'authenticated');
 
   const applySession = useCallback((s: Session) => setSession(s), []);
 

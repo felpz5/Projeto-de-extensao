@@ -95,6 +95,19 @@ export default defineConfig({
       },
       devOptions: { enabled: false },
     }),
+    /**
+     * O app só pode ser instalado por quem está logado: o <link rel="manifest"> NÃO vai no HTML
+     * (sem ele o navegador nem oferece a instalação). Ele é adicionado pelo app depois do login
+     * (lib/pwa.ts → useManifestWhileLoggedIn) e removido ao sair.
+     */
+    {
+      name: 'gestock-manifest-only-when-logged-in',
+      enforce: 'post',
+      transformIndexHtml: {
+        order: 'post',
+        handler: (html: string) => html.replace(/\s*<link rel="manifest"[^>]*>/g, ''),
+      },
+    },
   ],
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },

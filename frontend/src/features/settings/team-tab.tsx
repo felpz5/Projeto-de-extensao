@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Trash2, UserPlus } from 'lucide-react';
+import { KeyRound, RefreshCw, Trash2, UserPlus } from 'lucide-react';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -28,7 +28,8 @@ const STATUS: Record<MembershipStatus, { label: string; tone: 'success' | 'neutr
 };
 
 export function TeamTab() {
-  const { isOwner, session } = useAuth();
+  const { isOwner, isManager, session } = useAuth();
+  const [resetting, setResetting] = useState<Member | null>(null);
   const queryClient = useQueryClient();
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<Member | null>(null);
@@ -58,9 +59,9 @@ export function TeamTab() {
     <Card>
       <CardHeader
         title="Equipe"
-        description="Dono: tudo · Gerente: cadastros, estoque, relatórios e previsão · Funcionário: vendas e entradas de estoque."
+        description="Dono: tudo · Gerente: cadastros, estoque, relatórios, previsão e os funcionários da equipe · Funcionário: vendas, caixa e entrada de mercadoria."
         action={
-          isOwner && (
+          isManager && (
             <Button onClick={() => setAdding(true)}>
               <UserPlus aria-hidden /> Adicionar
             </Button>
@@ -79,12 +80,16 @@ export function TeamTab() {
               <Th>Papel</Th>
               <Th>Situação</Th>
               <Th>Desde</Th>
-              {isOwner && <Th className="sr-only">Ações</Th>}
+              {isManager && <Th className="sr-only">Ações</Th>}
             </tr>
           </thead>
           <tbody>
             {query.data.map((m) => {
-              const editable = isOwner && m.role !== 'OWNER' && m.user.id !== session?.user.id;
+              // Dono: todos menos ele mesmo. Gerente: só funcionários.
+              const editable =
+                m.role !== 'OWNER' &&
+                m.user.id !== session?.user.id &&
+                (isOwner || (isManager && m.role === 'STAFF'));
               return (
                 <Tr key={m.id}>
                   <Td>
@@ -92,7 +97,7 @@ export function TeamTab() {
                     <p className="text-xs text-muted">{m.user.email}</p>
                   </Td>
                   <Td>
-                    {editable ? (
+                    {editable && isOwner ? (
                       <Select
                         aria-label={`Papel de ${m.user.name}`}
                         className="h-9 w-40"
@@ -110,8 +115,13 @@ export function TeamTab() {
                     <Badge tone={STATUS[m.status].tone}>{STATUS[m.status].label}</Badge>
                   </Td>
                   <Td className="text-muted">{formatDate(m.createdAt)}</Td>
-                  {isOwner && (
+                  {isManager && (
                     <Td className="whitespace-nowrap text-right">
+                      {editable && m.status !== 'INVITED' && (
+                        <Button variant="ghost" size="sm" onClick={() => setResetting(m)}>
+                          <KeyRound aria-hidden /> Senha
+                        </Button>
+                      )}
                       {editable && m.status !== 'INVITED' && (
                         <Button
                           variant="ghost"
@@ -140,7 +150,8 @@ export function TeamTab() {
         </Table>
       )}
 
-      <AddMemberDialog open={adding} onOpenChange={setAdding} />
+      <AddMemberDialog open={adding} onOpenChange={setAdding} canAddManager={isOwner} />
+      {resetting && <ResetPasswordDialog member={resetting} onClose={() => setResetting(null)} />}
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(o) => !o && setRemoving(null)}
@@ -163,7 +174,16 @@ const addSchema = z.object({
 });
 type AddForm = z.infer<typeof addSchema>;
 
-function AddMemberDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+function AddMemberDialog({
+  open,
+  onOpenChange,
+  canAddManager,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  /** Gerente só adiciona funcionário. */
+  canAddManager: boolean;
+}) {
   const queryClient = useQueryClient();
   const {
     register,
@@ -226,7 +246,7 @@ function AddMemberDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
         <Field label="Papel" error={errors.role?.message}>
           <Select {...register('role')}>
             <option value="STAFF">Funcionário</option>
-            <option value="MANAGER">Gerente</option>
+            {canAddManager && <option value="MANAGER">Gerente</option>}
           </Select>
         </Field>
         <Notice>
@@ -240,6 +260,91 @@ function AddMemberDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
           <Input type="text" autoComplete="new-password" {...register('password')} />
         </Field>
       </form>
+    </Dialog>
+  );
+}
+
+/** Gera uma senha provisória fácil de ditar (sem caracteres confundíveis como 0/O, 1/l). */
+function suggestPassword() {
+  const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+  const random = new Uint32Array(10);
+  crypto.getRandomValues(random);
+  const s = Array.from(random, (n) => chars[n % chars.length]).join('');
+  return `${s.slice(0, 5)}-${s.slice(5)}`;
+}
+
+/**
+ * Senha provisória para quem esqueceu a dele. A pessoa troca no próximo acesso e as sessões
+ * abertas dela são encerradas. Só funciona para contas usadas apenas neste estabelecimento.
+ */
+function ResetPasswordDialog({ member, onClose }: { member: Member; onClose: () => void }) {
+  const [password, setPassword] = useState(suggestPassword);
+  const [done, setDone] = useState(false);
+  const mutation = useMutation({
+    mutationFn: () =>
+      api(`/tenant/members/${member.user.id}/password`, { method: 'POST', body: { password } }),
+    onSuccess: () => setDone(true),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(o) => !o && onClose()}
+      title={`Nova senha para ${member.user.name}`}
+      description={done ? undefined : 'Use quando a pessoa esqueceu a senha. Ela vai trocar no próximo acesso.'}
+      footer={
+        done ? (
+          <Button onClick={onClose}>Pronto</Button>
+        ) : (
+          <>
+            <Button variant="secondary" onClick={onClose}>
+              Cancelar
+            </Button>
+            <Button loading={mutation.isPending} disabled={password.length < 8} onClick={() => mutation.mutate()}>
+              Definir senha provisória
+            </Button>
+          </>
+        )
+      }
+    >
+      {done ? (
+        <div className="flex flex-col gap-3 text-sm">
+          <p>Senha provisória definida. Passe para {member.user.name.split(' ')[0]}:</p>
+          <p className="tabular select-all rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-center text-lg font-bold tracking-wider">
+            {password}
+          </p>
+          <p className="text-muted">
+            No próximo acesso ela cria uma senha própria. As sessões abertas em outros aparelhos foram
+            encerradas.
+          </p>
+        </div>
+      ) : (
+        // O <Field> liga o rótulo ao primeiro filho: o campo fica sozinho dentro dele.
+        <div className="flex items-start gap-2">
+          <Field
+            className="flex-1"
+            label="Senha provisória"
+            hint="Mínimo 8 caracteres. Sugerimos uma fácil de ditar."
+          >
+            <Input
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="off"
+              className="tabular"
+            />
+          </Field>
+          <Button
+            variant="secondary"
+            size="icon"
+            className="mt-7"
+            onClick={() => setPassword(suggestPassword())}
+            aria-label="Gerar outra senha"
+          >
+            <RefreshCw aria-hidden />
+          </Button>
+        </div>
+      )}
     </Dialog>
   );
 }

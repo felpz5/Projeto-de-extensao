@@ -3,6 +3,10 @@ import {
   membershipRepository,
   type MembershipRepository,
 } from '@/repositories/membership.repository';
+import {
+  refreshTokenRepository,
+  type RefreshTokenRepository,
+} from '@/repositories/refresh-token.repository';
 import { tenantRepository, type TenantRepository } from '@/repositories/tenant.repository';
 import { userRepository, type UserRepository } from '@/repositories/user.repository';
 import { auditService, type AuditService } from '@/services/audit.service';
@@ -18,6 +22,7 @@ export class TenantService {
     private readonly memberships: MembershipRepository,
     private readonly users: UserRepository,
     private readonly audit: AuditService,
+    private readonly refreshTokens: RefreshTokenRepository,
   ) {}
 
   current(auth: AuthContext) {
@@ -44,6 +49,10 @@ export class TenantService {
    *   estabelecimento depois de aceitar — ninguém é colocado na equipe de outro sem consentir.
    */
   async addMember(auth: AuthContext, input: AddMemberDTO) {
+    // Gerente monta a equipe do dia a dia, mas só com funcionários (não cria outro gerente).
+    if (auth.role === 'MANAGER' && input.role !== 'STAFF') {
+      throw new AppError('Gerente só pode adicionar funcionários', 403);
+    }
     const passwordHash = input.password ? await hashPassword(input.password) : undefined;
 
     return withContext(auth, async (tx) => {
@@ -101,6 +110,7 @@ export class TenantService {
     return withContext(auth, async (tx) => {
       const current = await this.findMember(tx, auth.tenantId, userId);
       if (current.role === 'OWNER') throw new AppError('Não é possível alterar o dono', 403);
+      this.assertManagerScope(auth, current.role, input.role);
       if (current.status === 'INVITED' && input.status) {
         throw new AppError(
           'O convite ainda não foi aceito: só a própria pessoa pode aceitá-lo',
@@ -122,10 +132,64 @@ export class TenantService {
     return withContext(auth, async (tx) => {
       const current = await this.findMember(tx, auth.tenantId, userId);
       if (current.role === 'OWNER') throw new AppError('Não é possível remover o dono', 403);
+      this.assertManagerScope(auth, current.role);
 
       await this.memberships.delete(tx, current.id);
       await this.audit.log(tx, auth, 'member.remove', 'membership', current.id, { userId });
     });
+  }
+
+  /**
+   * Nova senha provisória para quem esqueceu a dele (não existe recuperação por e-mail).
+   * A pessoa troca no próximo acesso; as sessões abertas dela são encerradas e o bloqueio por
+   * tentativas erradas é zerado.
+   * Segurança: só para contas que pertencem SÓ a este estabelecimento — senão o dono de uma
+   * loja poderia tomar a conta de alguém que é dono de outra.
+   */
+  async resetMemberPassword(auth: AuthContext, userId: string, password: string) {
+    if (userId === auth.userId) {
+      throw new AppError('Para trocar a sua senha, use "Minha conta"', 400);
+    }
+    const passwordHash = await hashPassword(password);
+
+    await withContext(auth, async (tx) => {
+      const current = await this.findMember(tx, auth.tenantId, userId);
+      if (current.role === 'OWNER') throw new AppError('Não é possível alterar o dono', 403);
+      this.assertManagerScope(auth, current.role);
+      if (current.status === 'INVITED') {
+        throw new AppError('Convite ainda não aceito: a pessoa usa a senha da própria conta', 400);
+      }
+    });
+
+    // Vínculos da pessoa em outras lojas: só visíveis com o contexto dela (RLS).
+    const others = await withContext({ userId }, (tx) =>
+      this.memberships.countOtherTenants(tx, userId, auth.tenantId),
+    );
+    if (others > 0) {
+      throw new AppError(
+        'Essa pessoa usa a mesma conta em outro estabelecimento. Ela precisa trocar a senha pela própria conta.',
+        409,
+      );
+    }
+
+    await this.users.update(userId, {
+      passwordHash,
+      mustChangePassword: true,
+      failedLoginCount: 0,
+      lockedUntil: null,
+    });
+    await this.refreshTokens.revokeAllForUser(userId, 'PASSWORD_CHANGED');
+    await withContext(auth, (tx) =>
+      this.audit.log(tx, auth, 'member.reset_password', 'membership', userId, { userId }),
+    );
+  }
+
+  /** Gerente só mexe em funcionário e não promove ninguém a gerente. Dono: tudo (menos o dono). */
+  private assertManagerScope(auth: AuthContext, targetRole: string, newRole?: string) {
+    if (auth.role !== 'MANAGER') return;
+    if (targetRole !== 'STAFF' || (newRole && newRole !== 'STAFF')) {
+      throw new AppError('Gerente só pode gerenciar funcionários', 403);
+    }
   }
 
   private async findMember(tx: Tx, tenantId: string, userId: string) {
@@ -140,4 +204,5 @@ export const tenantService = new TenantService(
   membershipRepository,
   userRepository,
   auditService,
+  refreshTokenRepository,
 );

@@ -16,6 +16,7 @@ import { qk, useIngredients } from '@/lib/queries';
 import { parseNum, toInput } from '@/lib/schemas';
 import type { Ingredient, ProductDetail } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { CostingCard } from './costing';
 import { ProductDialog } from './product-dialog';
 
 export function ProductDetailPage() {
@@ -58,6 +59,12 @@ export function ProductDetailPage() {
           )
         }
       />
+
+      {p.costing && (
+        <div className="mb-4">
+          <CostingCard costing={p.costing} price={p.price} />
+        </div>
+      )}
 
       {p.pricingMode === 'UNIT' ? (
         <CompositionEditor

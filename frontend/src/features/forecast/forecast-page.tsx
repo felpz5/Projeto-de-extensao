@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, ShoppingCart } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { ChartFrame, ForecastChart } from '@/components/charts';
@@ -19,6 +19,8 @@ import {
 import { qk } from '@/lib/queries';
 import type { Forecast, ProductForecastResponse, ReorderItem, ReorderResponse, ReorderUrgency } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { ShoppingListDialog } from './shopping-list-dialog';
 import { UrgencyBadge } from './urgency-badge';
 
 const URGENCY_ORDER: ReorderUrgency[] = ['OUT_OF_STOCK', 'URGENT', 'BUY', 'LOW_STOCK_NO_HISTORY', 'OK', 'NO_HISTORY'];
@@ -71,6 +73,7 @@ function ConfidenceBadge({ forecast }: { forecast: Pick<Forecast, 'confidence' |
 
 function ReorderTab() {
   const [coverage, setCoverage] = useState(7);
+  const [shopping, setShopping] = useState(false);
   const query = useQuery({
     queryKey: qk.reorder(coverage),
     queryFn: () => api<ReorderResponse>('/forecast/reorder', { query: { coverageDays: coverage } }),
@@ -93,12 +96,18 @@ function ReorderTab() {
             ))}
           </Select>
         </Field>
-        {totalCost > 0 && (
-          <p className="text-sm text-muted">
-            Custo estimado das sugestões: <span className="tabular font-semibold text-white">{formatMoney(totalCost)}</span>
-          </p>
-        )}
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          {totalCost > 0 && (
+            <p className="text-sm text-muted">
+              Custo estimado das sugestões: <span className="tabular font-semibold text-white">{formatMoney(totalCost)}</span>
+            </p>
+          )}
+          <Button onClick={() => setShopping(true)} disabled={!query.data}>
+            <ShoppingCart aria-hidden /> Montar lista de compras
+          </Button>
+        </div>
       </Card>
+      {shopping && <ShoppingListDialog items={items} onClose={() => setShopping(false)} />}
 
       {query.isPending ? (
         <Spinner />

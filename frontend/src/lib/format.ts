@@ -4,6 +4,7 @@ import type {
   Confidence,
   Decimal,
   MovementType,
+  PaymentMethod,
   QuantitySource,
   ReorderUrgency,
   Role,
@@ -148,3 +149,19 @@ export const URGENCY_LABEL: Record<ReorderUrgency, string> = {
   LOW_STOCK_NO_HISTORY: 'Abaixo do mínimo',
   NO_HISTORY: 'Sem histórico',
 };
+
+export const PAYMENT_LABEL: Record<PaymentMethod, string> = {
+  PIX: 'Pix',
+  CASH: 'Dinheiro',
+  CREDIT_CARD: 'Crédito',
+  DEBIT_CARD: 'Débito',
+  VOUCHER: 'Vale',
+  OTHER: 'Outro',
+};
+
+export const paymentLabel = (m: PaymentMethod | null | undefined) =>
+  m ? PAYMENT_LABEL[m] : 'Não informado';
+
+/** Porcentagem no formato pt-BR (ex.: 12,5%). */
+export const formatPct = (v: number | null | undefined, digits = 1) =>
+  v === null || v === undefined ? '—' : `${formatNumber(v, digits)}%`;

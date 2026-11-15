@@ -32,6 +32,17 @@ export class UserRepository {
   update(id: string, data: Prisma.UserUpdateInput, db: Tx = prisma) {
     return db.user.update({ where: { id }, data });
   }
+
+  /** Nomes para exibir em listas (quem vendeu, quem cancelou, quem fez a ação). */
+  async namesById(ids: (string | null | undefined)[], db: Tx = prisma) {
+    const unique = [...new Set(ids.filter((id): id is string => !!id))];
+    if (!unique.length) return new Map<string, string>();
+    const rows = await db.user.findMany({
+      where: { id: { in: unique } },
+      select: { id: true, name: true },
+    });
+    return new Map(rows.map((r) => [r.id, r.name]));
+  }
 }
 
 export const userRepository = new UserRepository();

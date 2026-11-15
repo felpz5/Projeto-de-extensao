@@ -26,7 +26,6 @@ import { useEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { Logo } from '@/components/layout/logo';
 import { buttonVariants } from '@/components/ui/button';
-import { InstallButton } from '@/components/pwa';
 import { useAuth } from '@/features/auth/auth-context';
 import { cn } from '@/lib/utils';
 import { delay, Reveal, useCountUp, useReveal, useScrollProgress } from './reveal';
@@ -129,7 +128,6 @@ function Nav() {
           ))}
         </ul>
         <div className="ml-auto flex items-center gap-2">
-          <InstallButton variant="ghost" className="hidden sm:inline-flex" />
           {status !== 'authenticated' && (
             <Link to="/entrar" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
               Entrar
@@ -178,12 +176,7 @@ function Hero() {
 
       <div className="mx-auto grid max-w-6xl items-center gap-14 lg:grid-cols-[1.1fr_1fr]">
         <div className="text-center lg:text-left">
-          <Reveal variant="down">
-            <span className="inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-semibold text-accent">
-              <Sparkles className="size-3.5" aria-hidden /> Feito para açaiterias, sorveterias e pequenos negócios
-            </span>
-          </Reveal>
-          <Reveal as="h1" variant="blur" delay={120} className="mt-6 text-4xl font-bold leading-tight tracking-tight sm:text-5xl lg:text-6xl">
+          <Reveal as="h1" variant="blur" delay={120} className="text-4xl font-bold leading-tight tracking-tight sm:text-5xl lg:text-6xl">
             Seu estoque sob controle.{' '}
             <span className="text-gradient motion-safe:animate-shine">Sua próxima compra, prevista.</span>
           </Reveal>
@@ -197,13 +190,6 @@ function Hero() {
               Ver como funciona
             </a>
           </Reveal>
-          <Reveal variant="up" delay={520} className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-muted lg:justify-start">
-            {['Funciona no celular', 'Equipe com permissões', 'Dados isolados por loja'].map((t) => (
-              <span key={t} className="inline-flex items-center gap-1.5">
-                <Check className="size-4 text-success" aria-hidden /> {t}
-              </span>
-            ))}
-          </Reveal>
         </div>
 
         <HeroMockup />
@@ -212,7 +198,7 @@ function Hero() {
   );
 }
 
-/** Painel + celular "de mentira" flutuando, montados com os próprios componentes visuais. */
+/** Mini painel "de mentira" flutuando, montado com os próprios componentes visuais. */
 function HeroMockup() {
   const bars = [52, 68, 45, 80, 62, 92, 74, 58, 86, 70, 96, 78];
   return (
@@ -248,31 +234,6 @@ function HeroMockup() {
             ))}
           </div>
         </div>
-      </div>
-
-      {/* Celular: venda de balcão */}
-      <div className="absolute -bottom-10 -left-4 w-44 motion-safe:animate-float sm:-left-10 sm:w-52" style={{ animationDelay: '-2s' }}>
-        <div className="rounded-[1.75rem] border-4 border-navy-700 bg-navy-950 p-3 shadow-2xl shadow-black/50">
-          <p className="text-[10px] font-semibold text-muted">Nova venda · Balcão</p>
-          <div className="mt-2 rounded-lg border border-navy-700 bg-navy-900 p-2">
-            <p className="text-[10px] text-muted">Açaí no peso</p>
-            <p className="tabular text-sm font-bold">350 g</p>
-          </div>
-          <div className="mt-2 rounded-lg bg-accent px-2 py-1.5 text-center text-[11px] font-bold text-navy-950">
-            Registrar · R$ 20,97
-          </div>
-        </div>
-      </div>
-
-      {/* Notificação de alerta */}
-      <div
-        className="absolute -right-2 -top-6 flex items-center gap-2 rounded-xl border border-warning/40 bg-navy-900 px-3 py-2 text-xs shadow-xl motion-safe:animate-float sm:-right-6"
-        style={{ animationDelay: '-4s' }}
-      >
-        <BellRing className="size-4 text-warning" aria-hidden />
-        <span>
-          <b>Paçoca</b> acaba em ~1 dia
-        </span>
       </div>
     </Reveal>
   );

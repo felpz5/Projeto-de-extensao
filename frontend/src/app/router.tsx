@@ -54,6 +54,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: page(() => import('@/features/dashboard/dashboard-page'), 'DashboardPage') },
           { path: 'vender', element: page(() => import('@/features/sales/new-sale-page'), 'NewSalePage') },
+          { path: 'caixa', element: page(() => import('@/features/sales/cash-page'), 'CashPage') },
           { path: 'estoque', element: page(() => import('@/features/inventory/stock-page'), 'StockPage') },
           {
             path: 'movimentacoes',
@@ -83,6 +84,14 @@ export const router = createBrowserRouter([
               {
                 path: 'previsao',
                 element: page(() => import('@/features/forecast/forecast-page'), 'ForecastPage'),
+              },
+              {
+                path: 'relatorios',
+                element: page(() => import('@/features/reports/reports-page'), 'ReportsPage'),
+              },
+              {
+                path: 'lojas',
+                element: page(() => import('@/features/stores/stores-page'), 'StoresPage'),
               },
             ],
           },

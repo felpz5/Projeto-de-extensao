@@ -57,11 +57,18 @@ O [docker-compose.yml](../docker-compose.yml) da raiz sobe o banco, aplica as mi
 ### Testes ponta a ponta (rodar antes de abrir PR para a `main`)
 
 Não há CI: os testes e2e são a garantia de que o isolamento entre estabelecimentos (RLS) continua
-funcionando. O jeito mais fácil é usar o banco do Docker (já com migrations e `gestock_app`):
+funcionando.
+
+> ⚠️ **Rode num banco só de teste.** Os testes criam estabelecimentos e contas (`@teste.com`) e não
+> apagam no final. Não aponte para o banco que você usa no dia a dia.
+
+O jeito mais fácil é um ambiente Docker separado (outro nome de projeto, outra porta):
 
 ```bash
-docker compose up -d db migrate      # na raiz do repositório
-DATABASE_URL=postgresql://gestock_app:<APP_DB_PASSWORD>@localhost:5432/gestock npm run test:e2e
+# na raiz do repositório: ambiente de teste com banco próprio
+DB_PORT=55433 docker compose -p gestock-teste up -d db migrate
+DATABASE_URL=postgresql://gestock_app:<APP_DB_PASSWORD>@localhost:55433/gestock npm run test:e2e
+docker compose -p gestock-teste down -v   # apaga o banco de teste
 ```
 
 Ou contra outro banco de teste, com as migrations aplicadas e o usuário `gestock_app` criado:
@@ -146,12 +153,16 @@ Autenticação: `Authorization: Bearer <accessToken>`. Valores decimais voltam c
 | POST | `/auth/logout` | cookie | encerra a sessão |
 | POST | `/auth/switch-tenant` | logado | troca o estabelecimento ativo |
 | GET | `/auth/me` | logado | usuário, papel, estabelecimentos e convites pendentes |
+| PATCH | `/auth/me` | logado | `{ name?, email?, currentPassword? }` · trocar o e-mail exige a senha atual |
+| GET | `/auth/stores?days=30` | logado | resumo de todas as lojas em que a pessoa é dona ou gerente |
 | POST | `/auth/change-password` | logado | `{ currentPassword, newPassword }` · encerra as outras sessões |
 | GET | `/auth/invitations` | logado | convites pendentes |
 | POST/DELETE | `/auth/invitations/:tenantId[/accept]` | logado | aceitar (`POST .../accept`) ou recusar (`DELETE`) |
 | GET/PATCH | `/tenant` | todos / OWNER | dados do estabelecimento |
-| GET/POST | `/tenant/members` | OWNER, MANAGER / OWNER | equipe · conta nova: `{ email, role, name, password }` (senha provisória) · conta existente: vira convite |
-| PATCH/DELETE | `/tenant/members/:userId` | OWNER | papel, desativar, remover (ou cancelar convite) |
+| GET/POST | `/tenant/members` | OWNER, MANAGER | equipe · conta nova: `{ email, role, name, password }` (senha provisória) · conta existente: vira convite · **gerente só adiciona STAFF** |
+| PATCH/DELETE | `/tenant/members/:userId` | OWNER, MANAGER | papel, desativar, remover (ou cancelar convite) · gerente só mexe em STAFF |
+| POST | `/tenant/members/:userId/password` | OWNER, MANAGER | `{ password }`: senha provisória para quem esqueceu · encerra as sessões da pessoa · só para contas usadas apenas neste estabelecimento |
+| GET | `/tenant/audit?entity&userId&take&skip` | OWNER, MANAGER | auditoria: quem fez o quê e quando |
 | CRUD | `/categories` | leitura: todos · escrita: OWNER, MANAGER | `?kind=PRODUCT\|INGREDIENT` |
 | CRUD | `/ingredients` | idem | lista inclui `stock` e `isLowStock` |
 | CRUD | `/products` | idem | |
@@ -159,16 +170,24 @@ Autenticação: `Authorization: Bearer <accessToken>`. Valores decimais voltam c
 | PUT | `/products/:id/weight-mix` | OWNER, MANAGER | composição média % (produtos WEIGHT, ingredientes em g) |
 | GET | `/inventory/levels` | todos | saldo + status OK/LOW/OUT |
 | GET | `/inventory/low-stock` | todos | só os alertas |
-| GET/POST | `/inventory/movements` | todos (STAFF só lança `INITIAL`/`PURCHASE`) | entradas, saídas, perdas, ajustes |
+| GET/POST | `/inventory/movements` | todos (STAFF só lança `PURCHASE`) | entradas, saídas, perdas, ajustes |
 | POST | `/inventory/movements/:id/reverse` | OWNER, MANAGER | estorna lançamento manual digitado errado |
-| POST | `/inventory/counts` | OWNER, MANAGER | contagem física → ajustes |
-| POST | `/sales` | todos | registra venda presencial ou online |
-| GET | `/sales` | OWNER, MANAGER | histórico com filtros e paginação |
-| GET | `/sales/summary` · `/sales/top-products` | OWNER, MANAGER | relatórios do período |
-| GET/DELETE | `/sales/:id` | OWNER, MANAGER | detalhe; excluir desfaz a baixa |
+| POST/GET | `/inventory/counts` | OWNER, MANAGER | contagem física → ajustes · `GET`: histórico de contagens |
+| GET | `/inventory/report?from&to` | OWNER, MANAGER | perdas e ajustes por ingrediente (precisão das estimativas) |
+| POST | `/sales` | todos | registra venda · `paymentMethod`: `CASH`, `PIX`, `CREDIT_CARD`, `DEBIT_CARD`, `VOUCHER`, `OTHER` |
+| GET | `/sales/cash?date&userId` | todos (STAFF: só o próprio) | fechamento de caixa do dia, por forma de pagamento |
+| GET | `/sales` | OWNER, MANAGER | histórico com filtros (`status`, `paymentMethod`...) e paginação |
+| GET | `/sales/summary` · `/sales/top-products` | OWNER, MANAGER | relatórios do período (com custo estimado e lucro bruto) |
+| GET | `/sales/:id` | OWNER, MANAGER · STAFF só a própria | detalhe com as baixas de estoque |
+| POST | `/sales/:id/cancel` | OWNER, MANAGER · STAFF: a própria, até 15 min | `{ reason }` · venda nunca é apagada: fica cancelada e o estoque é estornado |
+| POST | `/sales/:id/correct` | idem | corpo igual ao de `POST /sales` · cancela a original e registra a nova ligada a ela, na mesma data |
 | GET | `/forecast/products?horizonDays=7` | OWNER, MANAGER | demanda prevista por produto |
 | GET | `/forecast/reorder?coverageDays=7` | OWNER, MANAGER | sugestão de compra por ingrediente |
 | GET | `/dashboard?from&to` | todos (STAFF vê só estoque; vendas e sugestões: OWNER/MANAGER) | visão geral |
+
+**Dados financeiros** (custo de ingrediente, valor do estoque, custo de compra, margem) voltam como
+`null` para o funcionário (`utils/visibility.ts`). Produtos trazem `costing` (custo, margem e %) para
+dono e gerente.
 
 **Datas:** no corpo, use ISO 8601 com fuso (`2026-11-30T15:00:00-03:00`); datas futuras são recusadas.
 Nos filtros (`from`/`to`), `2026-11-30` significa o dia inteiro **no fuso do estabelecimento**.

@@ -1,19 +1,21 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation } from '@tanstack/react-query';
-import { Minus, Plus, Store, Globe, Trash2 } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { Minus, Plus, Receipt, Store, Globe, Trash2 } from 'lucide-react';
+import { useId, useMemo, useState } from 'react';
 import { useFieldArray, useForm, useWatch, type Control } from 'react-hook-form';
-import { Link } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { z } from 'zod';
+import { PaymentPicker } from '@/components/payment';
 import { EstimatedBadge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { EmptyState, ErrorState, Notice, PageHeader, Spinner } from '@/components/ui/feedback';
-import { Checkbox, Field, Input, Select, Textarea } from '@/components/ui/form';
+import { Checkbox, Field, Input, Label, Select, Textarea } from '@/components/ui/form';
 import { useAuth } from '@/features/auth/auth-context';
 import { api, errorMessage } from '@/lib/api';
 import {
+  formatDateTime,
   formatMoney,
   formatQty,
   localInputToIso,
@@ -21,10 +23,11 @@ import {
   toNumber,
   UNIT_LABEL,
 } from '@/lib/format';
-import { useIngredients, useInvalidateStock, useProducts } from '@/lib/queries';
-import { LIMITS, optionalNumberField, parseNum } from '@/lib/schemas';
-import type { Channel, Ingredient, Product, Sale } from '@/lib/types';
+import { qk, useIngredients, useInvalidateStock, useProducts } from '@/lib/queries';
+import { LIMITS, optionalNumberField, parseNum, toInput } from '@/lib/schemas';
+import type { Channel, Ingredient, PaymentMethod, Product, Sale, SaleDetail } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { CancelSaleDialog } from './cancel-sale-dialog';
 
 const itemSchema = z.object({
   productId: z.string().min(1, 'Escolha o produto'),
@@ -36,6 +39,8 @@ const itemSchema = z.object({
 
 const schema = z.object({
   channel: z.enum(['IN_STORE', 'ONLINE']),
+  // Obrigatória: é o que permite fechar o caixa no fim do dia (dinheiro × Pix × cartão).
+  paymentMethod: z.string().min(1, 'Escolha a forma de pagamento'),
   items: z.array(itemSchema).min(1, 'Adicione pelo menos um item'),
   totalAmount: optionalNumberField({ min: 0, max: LIMITS.money }),
   customDate: z.boolean(),
@@ -70,31 +75,90 @@ function itemValue(item: ItemData, product: Product | undefined): number | null 
  * Online: ingredientes escolhidos pelo cliente (baixa estimada pela porção padrão).
  */
 export function NewSalePage() {
+  // /vender?corrigir=<id>: mesmo formulário, já preenchido com a venda a corrigir.
+  const correctId = useSearchParams()[0].get('corrigir');
   const products = useProducts({ active: true });
   const ingredients = useIngredients({ active: true });
+  const correcting = useQuery({
+    queryKey: qk.sale(correctId ?? ''),
+    queryFn: () => api<SaleDetail>(`/sales/${correctId}`),
+    enabled: !!correctId,
+  });
 
-  if (products.isPending || ingredients.isPending) return <Spinner />;
+  if (products.isPending || ingredients.isPending || (correctId && correcting.isPending))
+    return <Spinner />;
   if (products.isError) return <ErrorState error={products.error} onRetry={() => products.refetch()} />;
   if (ingredients.isError)
     return <ErrorState error={ingredients.error} onRetry={() => ingredients.refetch()} />;
+  if (correctId && correcting.isError) return <ErrorState error={correcting.error} />;
 
-  return <SaleForm products={products.data} ingredients={ingredients.data} />;
+  return (
+    <SaleForm
+      key={correctId ?? 'nova'}
+      products={products.data}
+      ingredients={ingredients.data}
+      correcting={correctId ? correcting.data : undefined}
+    />
+  );
 }
 
-function SaleForm({ products, ingredients }: { products: Product[]; ingredients: Ingredient[] }) {
+/** Valores do formulário a partir de uma venda registrada (para corrigir). */
+function fromSale(sale: SaleDetail, products: Map<string, Product>): FormData {
+  const items = sale.items.map((i): ItemData => {
+    const product = products.get(i.productId);
+    // Item por peso com peso informado: o valor é recalculado pelo peso.
+    const recomputed =
+      (product?.pricingMode === 'WEIGHT' && i.weightG) ||
+      (product?.pricingMode === 'UNIT' && toNumber(i.unitPrice) === toNumber(product.price));
+    return {
+      productId: i.productId,
+      quantity: toInput(i.quantity),
+      weightG: toInput(i.weightG),
+      unitPrice: recomputed ? '' : toInput(i.unitPrice),
+      ingredientIds: i.ingredients?.map((x) => x.ingredientId) ?? [],
+    };
+  });
+  const itemsTotal = items.reduce((s, i) => s + (itemValue(i, products.get(i.productId)) ?? 0), 0);
+  return {
+    channel: sale.channel,
+    paymentMethod: sale.paymentMethod ?? '',
+    items,
+    // Valor cobrado diferente da soma dos itens (ex.: anotado no caderno): mantém.
+    totalAmount: Math.abs(itemsTotal - toNumber(sale.totalAmount)) > 0.009 ? toInput(sale.totalAmount) : '',
+    customDate: false,
+    soldAt: nowLocalInput(),
+    notes: sale.notes ?? '',
+  };
+}
+
+function SaleForm({
+  products,
+  ingredients,
+  correcting,
+}: {
+  products: Product[];
+  ingredients: Ingredient[];
+  correcting?: SaleDetail;
+}) {
   const { isManager } = useAuth();
+  const navigate = useNavigate();
   const invalidate = useInvalidateStock();
+  const [undoing, setUndoing] = useState<Sale | null>(null);
   const productMap = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
   const defaultProduct = products.find((p) => p.pricingMode === 'WEIGHT') ?? products[0];
 
-  const defaults = (channel: Channel = 'IN_STORE'): FormData => ({
-    channel,
-    items: [emptyItem(defaultProduct?.id)],
-    totalAmount: '',
-    customDate: false,
-    soldAt: nowLocalInput(),
-    notes: '',
-  });
+  const defaults = (channel: Channel = 'IN_STORE'): FormData =>
+    correcting
+      ? fromSale(correcting, productMap)
+      : {
+          channel,
+          paymentMethod: '',
+          items: [emptyItem(defaultProduct?.id)],
+          totalAmount: '',
+          customDate: false,
+          soldAt: nowLocalInput(),
+          notes: '',
+        };
 
   const {
     register,
@@ -108,6 +172,7 @@ function SaleForm({ products, ingredients }: { products: Product[]; ingredients:
   const channel = useWatch({ control, name: 'channel' });
   const items = useWatch({ control, name: 'items' });
   const customDate = useWatch({ control, name: 'customDate' });
+  const paymentMethod = useWatch({ control, name: 'paymentMethod' });
   const typedTotal = parseNum(useWatch({ control, name: 'totalAmount' }));
 
   const values = items.map((i) => itemValue(i, productMap.get(i.productId)));
@@ -116,10 +181,22 @@ function SaleForm({ products, ingredients }: { products: Product[]; ingredients:
     : null;
 
   const mutation = useMutation({
-    mutationFn: (body: unknown) => api<Sale>('/sales', { method: 'POST', body }),
+    mutationFn: (body: unknown) =>
+      correcting
+        ? api<Sale>(`/sales/${correcting.id}/correct`, { method: 'POST', body })
+        : api<Sale>('/sales', { method: 'POST', body }),
     onSuccess: (sale) => {
-      toast.success(`Venda registrada: ${formatMoney(sale.totalAmount)}`);
       invalidate();
+      if (correcting) {
+        toast.success(`Venda corrigida: ${formatMoney(sale.totalAmount)}. A original ficou como cancelada.`);
+        navigate(-1);
+        return;
+      }
+      // Erro de digitação no balcão é comum: "Desfazer" cancela na hora (com motivo).
+      toast.success(`Venda registrada: ${formatMoney(sale.totalAmount)}`, {
+        duration: 8000,
+        action: { label: 'Desfazer', onClick: () => setUndoing(sale) },
+      });
       reset(defaults(channel));
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -144,6 +221,8 @@ function SaleForm({ products, ingredients }: { products: Product[]; ingredients:
 
     mutation.mutate({
       channel: data.channel,
+      paymentMethod: data.paymentMethod,
+      // Corrigindo sem mudar a data: a API mantém a data/hora da venda original.
       soldAt: data.customDate && data.soldAt ? localInputToIso(data.soldAt) : undefined,
       totalAmount: total,
       notes: data.notes.trim() || undefined,
@@ -187,7 +266,23 @@ function SaleForm({ products, ingredients }: { products: Product[]; ingredients:
 
   return (
     <>
-      <PageHeader title="Nova venda" />
+      <PageHeader
+        title={correcting ? 'Corrigir venda' : 'Nova venda'}
+        actions={
+          !correcting && (
+            <Link to="/caixa" className={buttonVariants({ variant: 'secondary', size: 'sm' })}>
+              <Receipt aria-hidden /> Meu caixa de hoje
+            </Link>
+          )
+        }
+      />
+      {correcting && (
+        <Notice className="mx-auto mb-4 max-w-2xl">
+          Corrigindo a venda de {formatMoney(correcting.totalAmount)} ({formatDateTime(correcting.soldAt)}).
+          Ao salvar, a original fica como <b>cancelada</b> (com o estoque devolvido) e a nova
+          mantém a mesma data e hora.
+        </Notice>
+      )}
       <form onSubmit={onSubmit} className="mx-auto flex max-w-2xl flex-col gap-4" noValidate>
         {/* Canal */}
         <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Canal da venda">
@@ -238,6 +333,11 @@ function SaleForm({ products, ingredients }: { products: Product[]; ingredients:
         </Button>
 
         <Card className="flex flex-col gap-4">
+          <PaymentPicker
+            value={paymentMethod as PaymentMethod | ''}
+            onChange={(m) => setValue('paymentMethod', m, { shouldValidate: true })}
+            error={errors.paymentMethod?.message}
+          />
           <Field
             label="Valor cobrado (R$)"
             error={errors.totalAmount?.message}
@@ -250,7 +350,10 @@ function SaleForm({ products, ingredients }: { products: Product[]; ingredients:
             <Input inputMode="decimal" placeholder={computed !== null ? formatMoney(computed) : '0,00'} {...register('totalAmount')} />
           </Field>
 
-          <Checkbox label="A venda foi em outra data/hora" {...register('customDate')} />
+          <Checkbox
+            label={correcting ? 'Mudar a data/hora da venda' : 'A venda foi em outra data/hora'}
+            {...register('customDate')}
+          />
           {customDate && (
             <Field label="Data e hora da venda">
               <Input type="datetime-local" max={nowLocalInput()} {...register('soldAt')} />
@@ -264,11 +367,15 @@ function SaleForm({ products, ingredients }: { products: Product[]; ingredients:
 
         <div className="sticky bottom-20 z-10 lg:bottom-4">
           <Button type="submit" size="lg" className="w-full shadow-lg shadow-navy-950" loading={mutation.isPending}>
-            Registrar venda
+            {correcting ? 'Salvar correção' : 'Registrar venda'}
             {(typedTotal ?? computed) !== null && ` · ${formatMoney(typedTotal ?? computed ?? 0)}`}
           </Button>
         </div>
       </form>
+
+      {undoing && (
+        <CancelSaleDialog sale={undoing} onClose={() => setUndoing(null)} />
+      )}
     </>
   );
 }
@@ -302,6 +409,7 @@ function ItemCard({
   onRemove,
   error,
 }: ItemCardProps) {
+  const idPrefix = useId();
   const quantity = useWatch({ control, name: `items.${index}.quantity` });
   const selected = useWatch({ control, name: `items.${index}.ingredientIds` }) ?? [];
   const isWeight = product?.pricingMode === 'WEIGHT';
@@ -354,17 +462,26 @@ function ItemCard({
           </Field>
         </div>
       ) : (
-        <Field label="Quantidade" error={error?.quantity?.message}>
+        // Rótulo ligado ao campo pelo id (o <Field> não serve: o campo fica entre os botões − e +).
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={`${idPrefix}-qty`}>Quantidade</Label>
           <div className="flex items-center gap-2">
-            <Button variant="secondary" size="icon" onClick={() => step(-1)} aria-label="Diminuir">
+            <Button variant="secondary" size="icon" onClick={() => step(-1)} aria-label="Diminuir quantidade">
               <Minus aria-hidden />
             </Button>
-            <Input inputMode="numeric" className="w-20 text-center" {...register(`items.${index}.quantity`)} />
-            <Button variant="secondary" size="icon" onClick={() => step(1)} aria-label="Aumentar">
+            <Input
+              id={`${idPrefix}-qty`}
+              inputMode="numeric"
+              className="w-20 text-center"
+              aria-invalid={error?.quantity ? true : undefined}
+              {...register(`items.${index}.quantity`)}
+            />
+            <Button variant="secondary" size="icon" onClick={() => step(1)} aria-label="Aumentar quantidade">
               <Plus aria-hidden />
             </Button>
           </div>
-        </Field>
+          {error?.quantity?.message && <p className="text-xs text-danger">{error.quantity.message}</p>}
+        </div>
       )}
 
       {channel === 'ONLINE' && (

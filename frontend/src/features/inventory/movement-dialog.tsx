@@ -21,8 +21,8 @@ import { useIngredients, useInvalidateStock } from '@/lib/queries';
 import { LIMITS, numberField, optionalNumberField, parseNum } from '@/lib/schemas';
 import type { ManualMovementType } from '@/lib/types';
 
-/** Funcionário só lança entradas; saídas, perdas e ajustes são de gerente/dono (a API confere). */
-const STAFF_TYPES: ManualMovementType[] = ['PURCHASE', 'INITIAL'];
+/** Funcionário só lança compra (mercadoria que chegou); o resto é de gerente/dono (a API confere). */
+const STAFF_TYPES: ManualMovementType[] = ['PURCHASE'];
 const MANAGER_TYPES: ManualMovementType[] = ['PURCHASE', 'INITIAL', 'MANUAL_OUT', 'LOSS', 'ADJUSTMENT'];
 
 const HELP: Record<ManualMovementType, string> = {

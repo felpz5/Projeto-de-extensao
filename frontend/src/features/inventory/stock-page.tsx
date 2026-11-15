@@ -73,8 +73,8 @@ export function StockPage() {
       />
 
       {levels.data && (
-        <div className="mb-4 grid grid-cols-3 gap-3">
-          <Stat label="Valor estimado" value={formatMoney(totals.value)} />
+        <div className={cn('mb-4 grid gap-3', isManager ? 'grid-cols-3' : 'grid-cols-2')}>
+          {isManager && <Stat label="Valor estimado" value={formatMoney(totals.value)} />}
           <Stat label="Baixo" value={totals.low} tone={totals.low ? 'warning' : 'default'} />
           <Stat label="Zerado" value={totals.out} tone={totals.out ? 'danger' : 'default'} />
         </div>
@@ -125,7 +125,7 @@ export function StockPage() {
                 <Th className="text-right">Saldo</Th>
                 <Th>Situação</Th>
                 <Th className="text-right">Mínimo</Th>
-                <Th className="text-right">Valor</Th>
+                {isManager && <Th className="text-right">Valor</Th>}
                 <Th className="sr-only">Ações</Th>
               </tr>
             </thead>
@@ -143,7 +143,9 @@ export function StockPage() {
                     <StockBadge status={l.status} />
                   </Td>
                   <Td className="tabular text-right text-muted">{formatQty(l.minStock, l.baseUnit)}</Td>
-                  <Td className="tabular text-right text-muted">{l.stockValue ? formatMoney(l.stockValue) : '—'}</Td>
+                  {isManager && (
+                    <Td className="tabular text-right text-muted">{l.stockValue ? formatMoney(l.stockValue) : '—'}</Td>
+                  )}
                   <Td className="text-right">
                     <Button
                       variant="ghost"

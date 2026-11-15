@@ -33,6 +33,11 @@ export const qk = {
   dashboard: (params: object) => ['dashboard', params] as const,
   productForecast: (horizon: number) => ['forecast', 'products', horizon] as const,
   reorder: (coverage: number) => ['forecast', 'reorder', coverage] as const,
+  cash: (params: object) => ['cash', params] as const,
+  stockReport: (params: object) => ['inventory', 'report', params] as const,
+  counts: (params: object) => ['inventory', 'counts', params] as const,
+  audit: (params: object) => ['audit', params] as const,
+  stores: (days: number) => ['stores', days] as const,
 };
 
 export function useMe() {
@@ -89,7 +94,8 @@ export function useInvalidateStock() {
   const queryClient = useQueryClient();
   return () =>
     Promise.all(
-      ['inventory', 'ingredients', 'ingredient', 'dashboard', 'forecast', 'sales'].map((key) =>
+      // compras mudam o custo do ingrediente → margem dos produtos também
+      ['inventory', 'ingredients', 'ingredient', 'dashboard', 'forecast', 'sales', 'cash', 'products', 'product', 'stores'].map((key) =>
         queryClient.invalidateQueries({ queryKey: [key] }),
       ),
     );

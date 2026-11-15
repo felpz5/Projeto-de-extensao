@@ -19,6 +19,8 @@ authRoutes.post('/logout', authController.logout);
 // Logado
 authRoutes.post('/switch-tenant', authenticate, authController.switchTenant);
 authRoutes.get('/me', authenticate, authController.me);
+authRoutes.patch('/me', authenticate, changePasswordLimiter, authController.updateProfile);
+authRoutes.get('/stores', authenticate, authController.stores);
 authRoutes.post(
   '/change-password',
   authenticate,

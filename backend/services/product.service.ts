@@ -11,7 +11,9 @@ import type {
   SetWeightMixDTO,
   UpdateProductDTO,
 } from '@/types/product.types';
+import { productCosting } from '@/services/product-costing';
 import { AppError } from '@/utils/app-error';
+import { canSeeCosts, withoutCost } from '@/utils/visibility';
 
 export class ProductService {
   constructor(
@@ -21,12 +23,38 @@ export class ProductService {
     private readonly audit: AuditService,
   ) {}
 
+  /** Lista com custo e margem (dono/gerente). Funcionário recebe só preço e composição. */
   list(auth: AuthContext, q: ListProductsQuery) {
-    return withContext(auth, (tx) => this.repository.list(tx, auth.tenantId, q));
+    return withContext(auth, async (tx) => {
+      const products = await this.repository.list(tx, auth.tenantId, q);
+      return products.map(({ recipeItems, weightMix, ...p }) => ({
+        ...p,
+        costing: canSeeCosts(auth.role) ? productCosting({ ...p, recipeItems, weightMix }) : null,
+      }));
+    });
   }
 
   getById(auth: AuthContext, id: string) {
-    return withContext(auth, (tx) => this.loadFull(tx, auth.tenantId, id));
+    return withContext(auth, async (tx) =>
+      this.withCosting(auth, await this.loadFull(tx, auth.tenantId, id)),
+    );
+  }
+
+  /** Custo e margem para dono/gerente; para o funcionário, sem custo de ingrediente. */
+  private withCosting(auth: AuthContext, product: Awaited<ReturnType<ProductService['loadFull']>>) {
+    if (canSeeCosts(auth.role)) return { ...product, costing: productCosting(product) };
+    return {
+      ...product,
+      recipeItems: product.recipeItems.map((r) => ({
+        ...r,
+        ingredient: withoutCost(auth.role, r.ingredient),
+      })),
+      weightMix: product.weightMix.map((m) => ({
+        ...m,
+        ingredient: withoutCost(auth.role, m.ingredient),
+      })),
+      costing: null,
+    };
   }
 
   create(auth: AuthContext, input: CreateProductDTO) {
@@ -77,7 +105,7 @@ export class ProductService {
 
       await this.repository.replaceRecipe(tx, auth.tenantId, productId, input.items);
       await this.audit.log(tx, auth, 'product.recipe.set', 'product', productId, input);
-      return this.loadFull(tx, auth.tenantId, productId);
+      return this.withCosting(auth, await this.loadFull(tx, auth.tenantId, productId));
     });
   }
 
@@ -105,7 +133,7 @@ export class ProductService {
 
       await this.repository.replaceWeightMix(tx, auth.tenantId, productId, input.items);
       await this.audit.log(tx, auth, 'product.weightMix.set', 'product', productId, input);
-      return this.loadFull(tx, auth.tenantId, productId);
+      return this.withCosting(auth, await this.loadFull(tx, auth.tenantId, productId));
     });
   }
 

@@ -11,6 +11,7 @@ import { formatMoney } from '@/lib/format';
 import { useProducts } from '@/lib/queries';
 import { useDebounced } from '@/lib/use-debounced';
 import type { Product } from '@/lib/types';
+import { MarginBadge } from './costing';
 import { ProductDialog } from './product-dialog';
 
 export function compositionLabel(p: Pick<Product, 'pricingMode' | '_count'>) {
@@ -84,6 +85,7 @@ export function ProductsPage() {
                     <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted">
                       {p.category?.name ?? 'Sem categoria'} · {compositionLabel(p)}
                       {p.pricingMode === 'WEIGHT' && p._count.weightMix > 0 && <EstimatedBadge />}
+                      <MarginBadge costing={p.costing} />
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">

@@ -53,6 +53,22 @@ enum MovementType {
   ADJUSTMENT
 }
 
+/// Forma de pagamento da venda (fechamento de caixa).
+enum PaymentMethod {
+  CASH // dinheiro
+  PIX
+  CREDIT_CARD
+  DEBIT_CARD
+  VOUCHER // vale-refeição/alimentação
+  OTHER
+}
+
+/// Venda nunca é apagada: erro de lançamento vira cancelamento (com motivo e estorno do estoque).
+enum SaleStatus {
+  COMPLETED
+  CANCELED
+}
+
 enum SaleChannel {
   IN_STORE
   ONLINE
@@ -281,21 +297,32 @@ model StockMovement {
 // ---------- Vendas ----------
 
 model Sale {
-  id           String      @id @default(uuid()) @db.Uuid
-  tenantId     String      @map("tenant_id") @db.Uuid
-  channel      SaleChannel
-  soldAt       DateTime    @default(now()) @map("sold_at")
-  totalAmount  Decimal     @map("total_amount") @db.Decimal(12, 2)
-  totalWeightG Decimal?    @map("total_weight_g") @db.Decimal(10, 1)
-  notes        String?
-  createdById  String?     @map("created_by_id") @db.Uuid
-  createdAt    DateTime    @default(now()) @map("created_at")
+  id            String         @id @default(uuid()) @db.Uuid
+  tenantId      String         @map("tenant_id") @db.Uuid
+  channel       SaleChannel
+  soldAt        DateTime       @default(now()) @map("sold_at")
+  totalAmount   Decimal        @map("total_amount") @db.Decimal(12, 2)
+  totalWeightG  Decimal?       @map("total_weight_g") @db.Decimal(10, 1)
+  notes         String?
+  createdById   String?        @map("created_by_id") @db.Uuid
+  createdAt     DateTime       @default(now()) @map("created_at")
+  /// null = vendas registradas antes de existir o campo.
+  paymentMethod PaymentMethod? @map("payment_method")
+  status        SaleStatus     @default(COMPLETED)
+  canceledAt    DateTime?      @map("canceled_at")
+  canceledById  String?        @map("canceled_by_id") @db.Uuid
+  cancelReason  String?        @map("cancel_reason")
+  /// Correção: esta venda substitui a venda correctsId (que foi cancelada ao corrigir).
+  correctsId    String?        @unique @map("corrects_id") @db.Uuid
 
-  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  items     SaleItem[]
-  movements StockMovement[]
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items       SaleItem[]
+  movements   StockMovement[]
+  corrects    Sale?           @relation("SaleCorrection", fields: [correctsId], references: [id], onDelete: SetNull)
+  correctedBy Sale?           @relation("SaleCorrection")
 
   @@index([tenantId, soldAt])
+  @@index([tenantId, createdById, soldAt])
   @@map("sales")
 }
 

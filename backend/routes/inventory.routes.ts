@@ -22,3 +22,7 @@ inventoryRoutes.post(
 
 /** Contagem física → ajustes com a diferença. */
 inventoryRoutes.post('/counts', authorize(...MANAGERS), inventoryController.count);
+inventoryRoutes.get('/counts', authorize(...MANAGERS), inventoryController.countHistory);
+
+/** Relatório de perdas e ajustes (dono/gerente). */
+inventoryRoutes.get('/report', authorize(...MANAGERS), inventoryController.report);

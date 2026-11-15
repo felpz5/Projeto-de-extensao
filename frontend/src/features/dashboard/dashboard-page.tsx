@@ -18,6 +18,7 @@ import {
   formatDay,
   formatMoney,
   formatNumber,
+  formatPct,
   formatQty,
   toNumber,
 } from '@/lib/format';
@@ -77,8 +78,20 @@ function DashboardContent({ data, days }: { data: Dashboard; days: number }) {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {sales && (
           <>
-            <Stat label="Faturamento" value={formatMoney(sales.revenue)} hint={`Últimos ${days} dias`} />
-            <Stat label="Pedidos" value={formatNumber(sales.orders, 0)} hint={`Ticket médio ${formatMoney(sales.averageTicket)}`} />
+            <Stat
+              label={`Faturamento · ${days} dias`}
+              value={formatMoney(sales.revenue)}
+              hint={`${formatNumber(sales.orders, 0)} pedidos · ticket ${formatMoney(sales.averageTicket)}`}
+            />
+            <Stat
+              label="Lucro bruto (estimado)"
+              value={formatMoney(sales.grossProfit)}
+              hint={
+                toNumber(sales.revenue) > 0
+                  ? `Margem ${formatPct((toNumber(sales.grossProfit) / toNumber(sales.revenue)) * 100)} sobre o custo dos ingredientes`
+                  : 'Faturamento − custo dos ingredientes'
+              }
+            />
           </>
         )}
         <Stat
@@ -91,7 +104,11 @@ function DashboardContent({ data, days }: { data: Dashboard; days: number }) {
           label="Sem estoque"
           value={stock.out}
           tone={stock.out ? 'danger' : 'default'}
-          hint={`Valor em estoque ${formatMoney(stock.estimatedValue)}`}
+          hint={
+            stock.estimatedValue !== null
+              ? `Valor em estoque ${formatMoney(stock.estimatedValue)}`
+              : `de ${stock.totalIngredients} ingredientes`
+          }
         />
       </div>
 

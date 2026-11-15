@@ -16,6 +16,7 @@ import type {
   UpdateIngredientDTO,
 } from '@/types/ingredient.types';
 import { AppError } from '@/utils/app-error';
+import { withoutCost } from '@/utils/visibility';
 import { ZERO } from '@/utils/decimal';
 import { stockStatus } from '@/utils/stock';
 
@@ -35,7 +36,7 @@ export class IngredientService {
       return items.map((i) => {
         const stock = balances.get(i.id) ?? ZERO;
         const status = stockStatus(stock, i.minStock);
-        return { ...i, stock, status, isLowStock: status !== 'OK' };
+        return withoutCost(auth.role, { ...i, stock, status, isLowStock: status !== 'OK' });
       });
     });
   }
@@ -46,7 +47,7 @@ export class IngredientService {
       if (!ingredient) throw new AppError('Registro não encontrado', 404);
       const stock = (await this.movements.balances(tx, auth.tenantId, [id])).get(id) ?? ZERO;
       const status = stockStatus(stock, ingredient.minStock);
-      return { ...ingredient, stock, status, isLowStock: status !== 'OK' };
+      return withoutCost(auth.role, { ...ingredient, stock, status, isLowStock: status !== 'OK' });
     });
   }
 

@@ -23,6 +23,7 @@ export class ForecastRepository {
       FROM sale_items si
       JOIN sales s ON s.id = si.sale_id
       WHERE s.tenant_id = ${tenantId}::uuid
+        AND s.status = 'COMPLETED'
         AND ((s.sold_at AT TIME ZONE 'UTC') AT TIME ZONE ${timezone})::date BETWEEN ${start}::date AND ${end}::date
       GROUP BY 1, 2`;
   }

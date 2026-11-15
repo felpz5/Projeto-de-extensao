@@ -123,14 +123,18 @@ Front (JWT no header)
 - Rate limiting no login e cadastro (`express-rate-limit`).
 - Bloqueio temporário após várias tentativas erradas (sem revelar se o e-mail existe).
 - Senha criada pelo dono para um funcionário é **provisória**: troca obrigatória no primeiro acesso (`POST /auth/change-password`).
+- Esqueceu a senha: dono/gerente define uma **senha provisória** (`POST /tenant/members/:id/password`), que encerra as sessões da pessoa. Só vale para contas usadas apenas naquele estabelecimento (o dono de uma loja não pode tomar a conta de quem é dono de outra). Recuperação por e-mail ainda não existe.
+- Trocar o próprio e-mail (que é o login) exige a senha atual.
 
 ### 4.3 Autorização (papéis por estabelecimento)
 
 | Papel | Pode |
 |---|---|
-| `OWNER` | Tudo, inclusive convidar/remover membros e editar dados do estabelecimento. |
-| `MANAGER` | Catálogo, receitas, estoque, vendas, relatórios, previsão. |
-| `STAFF` | Registrar vendas e entradas de estoque (estoque inicial e compras); consultar estoque. **Não** vê faturamento, histórico de vendas nem relatórios. |
+| `OWNER` | Tudo, inclusive editar dados do estabelecimento e gerenciar gerentes. |
+| `MANAGER` | Catálogo, receitas, estoque (ajustes, contagem, estorno), vendas (cancelar/corrigir qualquer uma), relatórios, previsão, auditoria e os **funcionários** da equipe (adicionar, desativar, redefinir senha). |
+| `STAFF` | Registrar vendas e **compras** de mercadoria; ver o **próprio caixa** do dia e cancelar/corrigir a **própria** venda nos primeiros 15 minutos; consultar estoque. **Não** vê faturamento, custos, valor do estoque, histórico de vendas nem relatórios — esses dados nem saem da API para ele. |
+
+Venda **nunca é apagada**: erro vira cancelamento (com motivo, quem e quando, na auditoria) ou correção (cancela a original e registra a certa, ligada a ela). O estoque que a venda baixou é estornado.
 
 Um usuário pode pertencer a mais de um estabelecimento (tabela `memberships`). Quando o dono adiciona um e-mail que **já tem conta**, isso vira um **convite**: a pessoa só entra no estabelecimento depois de aceitar.
 
@@ -171,7 +175,7 @@ Convenções: `id uuid`, `created_at`, `updated_at`; quantidades em `numeric(14,
 - Inventário físico (contagem) gera um `ADJUSTMENT` com a diferença em relação ao saldo **na data da contagem** — isso também **corrige o erro das estimativas** periodicamente. Na previsão, os ajustes corrigem o consumo registrado proporcionalmente (para cima ou para baixo), sem criar pico no dia da contagem.
 
 ### 5.4 Vendas
-- **sales** — tenant_id, channel (`IN_STORE|ONLINE`), sold_at, total_amount, **total_weight_g** (opcional), notes, created_by
+- **sales** — tenant_id, channel (`IN_STORE|ONLINE`), sold_at, total_amount, **total_weight_g** (opcional), notes, created_by, **payment_method** (`CASH|PIX|CREDIT_CARD|DEBIT_CARD|VOUCHER|OTHER`), **status** (`COMPLETED|CANCELED`), canceled_at/by, cancel_reason, corrects_id (correção)
 - **sale_items** — sale_id, product_id, quantity, unit_price, weight_g (opcional)
 - **sale_item_ingredients** — sale_item_id, ingredient_id, quantity (opcional), **quantity_source**:
   - `MEASURED` — pesado/informado de verdade

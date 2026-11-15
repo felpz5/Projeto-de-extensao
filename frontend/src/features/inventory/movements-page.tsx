@@ -100,7 +100,7 @@ export function MovementsPage() {
                   <Th>Ingrediente</Th>
                   <Th className="text-right">Quantidade</Th>
                   <Th>Tipo</Th>
-                  <Th className="text-right">Custo</Th>
+                  {isManager && <Th className="text-right">Custo</Th>}
                   <Th>Observação</Th>
                   {isManager && <Th className="sr-only">Ações</Th>}
                 </tr>
@@ -132,7 +132,9 @@ export function MovementsPage() {
                           {m.reversesId && <Badge tone="accent">Estorno</Badge>}
                         </div>
                       </Td>
-                      <Td className="tabular text-right text-muted">{m.unitCost ? formatMoney(m.unitCost) : '—'}</Td>
+                      {isManager && (
+                        <Td className="tabular text-right text-muted">{m.unitCost ? formatMoney(m.unitCost) : '—'}</Td>
+                      )}
                       <Td className="max-w-56 truncate text-muted" title={m.note ?? undefined}>
                         {m.note ?? '—'}
                       </Td>

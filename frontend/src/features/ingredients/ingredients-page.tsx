@@ -72,7 +72,7 @@ export function IngredientsPage() {
                 <Th>Saldo</Th>
                 <Th className="text-right">Mínimo</Th>
                 <Th className="text-right">Porção</Th>
-                <Th className="text-right">Custo</Th>
+                {isManager && <Th className="text-right">Custo</Th>}
                 <Th className="text-right">Reposição</Th>
                 {isManager && <Th className="sr-only">Ações</Th>}
               </tr>
@@ -99,9 +99,11 @@ export function IngredientsPage() {
                   <Td className="tabular text-right text-muted">
                     {i.defaultPortion ? formatQty(i.defaultPortion, i.baseUnit) : '—'}
                   </Td>
-                  <Td className="tabular text-right text-muted">
-                    {i.costPerUnit ? `${formatMoney(i.costPerUnit)}/${UNIT_LABEL[i.baseUnit]}` : '—'}
-                  </Td>
+                  {isManager && (
+                    <Td className="tabular text-right text-muted">
+                      {i.costPerUnit ? `${formatMoney(i.costPerUnit)}/${UNIT_LABEL[i.baseUnit]}` : '—'}
+                    </Td>
+                  )}
                   <Td className="tabular text-right text-muted">{i.leadTimeDays} dia(s)</Td>
                   {isManager && (
                     <Td className="whitespace-nowrap text-right">

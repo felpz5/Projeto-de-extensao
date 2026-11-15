@@ -5,6 +5,7 @@ import type {
   loginSchema,
   registerSchema,
   switchTenantSchema,
+  updateProfileSchema,
 } from '@/validations/auth.validation';
 
 /** Quem está fazendo a requisição e em qual estabelecimento. Vem SEMPRE do token, nunca do body. */
@@ -18,6 +19,7 @@ export type RegisterDTO = z.infer<typeof registerSchema>;
 export type LoginDTO = z.infer<typeof loginSchema>;
 export type SwitchTenantDTO = z.infer<typeof switchTenantSchema>;
 export type ChangePasswordDTO = z.infer<typeof changePasswordSchema>;
+export type UpdateProfileDTO = z.infer<typeof updateProfileSchema>;
 
 /** Sessão emitida no login/refresh. O refresh token vai só no cookie httpOnly. */
 export interface IssuedSession {

@@ -20,6 +20,8 @@ export type MovementType =
   | 'ADJUSTMENT';
 export type ManualMovementType = Exclude<MovementType, 'SALE_CONSUMPTION'>;
 export type QuantitySource = 'MEASURED' | 'RECIPE' | 'STANDARD_PORTION' | 'UNKNOWN';
+export type PaymentMethod = 'CASH' | 'PIX' | 'CREDIT_CARD' | 'DEBIT_CARD' | 'VOUCHER' | 'OTHER';
+export type SaleStatus = 'COMPLETED' | 'CANCELED';
 
 // ---------- Auth ----------
 
@@ -110,6 +112,18 @@ export interface IngredientRef {
   baseUnit: BaseUnit;
 }
 
+/** Custo e margem do produto (só dono/gerente; null para funcionário). */
+export interface ProductCosting {
+  /** UNIT = custo de 1 unidade · KG = custo de 1 kg */
+  basis: 'UNIT' | 'KG';
+  cost: Decimal | null;
+  margin: Decimal | null;
+  marginPct: number | null;
+  missingCost: string[];
+  coveragePct: number | null;
+  estimated: boolean;
+}
+
 export interface Product {
   id: string;
   categoryId: string | null;
@@ -119,6 +133,7 @@ export interface Product {
   active: boolean;
   category: CategoryRef | null;
   _count: { recipeItems: number; weightMix: number };
+  costing: ProductCosting | null;
 }
 
 export interface ProductDetail extends Omit<Product, '_count'> {
@@ -196,10 +211,24 @@ export interface Sale {
   id: string;
   channel: Channel;
   soldAt: string;
+  createdAt: string;
   totalAmount: Decimal;
   totalWeightG: Decimal | null;
   notes: string | null;
   createdById: string | null;
+  createdByName?: string | null;
+  paymentMethod: PaymentMethod | null;
+  status: SaleStatus;
+  canceledAt: string | null;
+  canceledById: string | null;
+  canceledByName?: string | null;
+  cancelReason: string | null;
+  correctsId: string | null;
+  /**
+   * Até quando quem está logado pode cancelar/corrigir: data (funcionário), null (dono/gerente,
+   * sem prazo) ou false (não pode). Vem no detalhe e no caixa.
+   */
+  editableUntil?: string | null | false;
   items: SaleItem[];
 }
 
@@ -216,7 +245,13 @@ export interface SalesSummary {
   revenue: Decimal;
   orders: number;
   averageTicket: Decimal;
+  /** Custo dos ingredientes baixados pelas vendas × custo atual (estimativa). */
+  estimatedCost: Decimal;
+  grossProfit: Decimal;
+  /** Baixas de ingredientes sem custo cadastrado (o custo fica incompleto). */
+  costMissingMovements: number;
   byChannel: { channel: Channel; orders: number; revenue: Decimal }[];
+  byPayment: { method: PaymentMethod | null; orders: number; revenue: Decimal }[];
   byDay: { day: string; orders: number; revenue: Decimal }[];
 }
 
@@ -303,9 +338,99 @@ export interface Dashboard {
     ok: number;
     low: number;
     out: number;
-    estimatedValue: number;
+    /** null para funcionário (dado financeiro). */
+    estimatedValue: number | null;
     alerts: StockLevel[];
   };
   recentMovements: Movement[];
   reorderSuggestions: { disclaimer: string; items: ReorderItem[] } | null;
+}
+
+// ---------- Caixa ----------
+
+export interface CashReport {
+  date: string;
+  userId: string | null;
+  editWindowMinutes: number;
+  orders: number;
+  revenue: Decimal;
+  averageTicket: Decimal;
+  byPayment: { method: PaymentMethod | null; orders: number; revenue: Decimal }[];
+  canceled: { orders: number; amount: Decimal };
+  sales: Sale[];
+}
+
+// ---------- Relatórios de estoque ----------
+
+export interface StockReportItem {
+  ingredientId: string;
+  name: string;
+  baseUnit: BaseUnit;
+  costPerUnit: Decimal | null;
+  purchased: number;
+  consumed: number;
+  consumedEstimated: number;
+  manualOut: number;
+  lost: number;
+  adjusted: number;
+  adjustments: number;
+  lostValue: Decimal | null;
+  adjustedValue: Decimal | null;
+  adjustmentPct: number | null;
+}
+
+export interface StockReport {
+  period: { from: string; to: string };
+  totals: {
+    lostValue: Decimal;
+    adjustedValue: Decimal;
+    ingredientsWithLoss: number;
+    ingredientsWithoutCost: number;
+  };
+  items: StockReportItem[];
+}
+
+export interface CountHistoryEntry {
+  id: string;
+  countedAt: string;
+  registeredAt: string;
+  userName: string | null;
+  counted: number;
+  adjusted: number;
+  items: {
+    ingredientId: string;
+    name: string;
+    baseUnit: BaseUnit;
+    previous: Decimal;
+    counted: Decimal;
+    difference: Decimal;
+  }[];
+}
+
+// ---------- Auditoria ----------
+
+export interface AuditEntry {
+  id: string;
+  userId: string | null;
+  userName: string | null;
+  action: string;
+  entity: string;
+  entityId: string | null;
+  payload: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+// ---------- Minhas lojas ----------
+
+export interface StoresOverview {
+  days: number;
+  stores: {
+    tenant: { id: string; name: string; slug: string };
+    role: Role;
+    current: boolean;
+    today: { orders: number; revenue: Decimal };
+    period: { days: number; orders: number; revenue: Decimal; averageTicket: Decimal };
+    stock: { low: number; out: number };
+  }[];
+  totals: { todayRevenue: Decimal; todayOrders: number; periodRevenue: Decimal; periodOrders: number };
 }

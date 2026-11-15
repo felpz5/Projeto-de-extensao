@@ -6,6 +6,8 @@ import {
   inventoryCountSchema,
   listMovementsQuery,
   reverseMovementSchema,
+  countHistoryQuery,
+  stockReportQuery,
 } from '@/validations/inventory.validation';
 
 export class InventoryController {
@@ -39,6 +41,18 @@ export class InventoryController {
   async count(req: Request, res: Response) {
     const data = inventoryCountSchema.parse(req.body);
     return res.status(201).json(await inventoryService.count(req.user!, data));
+  }
+
+  /** Perdas e ajustes do período (precisão das estimativas). */
+  async report(req: Request, res: Response) {
+    const query = stockReportQuery.parse(req.query);
+    return res.json(await inventoryService.report(req.user!, query));
+  }
+
+  /** Histórico de contagens físicas. */
+  async countHistory(req: Request, res: Response) {
+    const { take, skip } = countHistoryQuery.parse(req.query);
+    return res.json(await inventoryService.countHistory(req.user!, take, skip));
   }
 }
 

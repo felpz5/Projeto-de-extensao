@@ -31,3 +31,15 @@ export const updateMemberSchema = z
     status: z.enum(['ACTIVE', 'DISABLED']).optional(),
   })
   .strict();
+
+/** Nova senha provisória para um membro (ele troca no próximo acesso). */
+export const resetMemberPasswordSchema = z.object({ password }).strict();
+
+export const auditQuery = z
+  .object({
+    entity: z.string().trim().max(40).optional(),
+    userId: z.string().uuid().optional(),
+    take: z.coerce.number().int().min(1).max(100).default(30),
+    skip: z.coerce.number().int().min(0).max(1_000_000).default(0),
+  })
+  .strict();

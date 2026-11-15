@@ -9,6 +9,7 @@ import {
   type StockMovementRepository,
 } from '@/repositories/stock-movement.repository';
 import { tenantRepository, type TenantRepository } from '@/repositories/tenant.repository';
+import { userRepository, type UserRepository } from '@/repositories/user.repository';
 import { auditService, type AuditService } from '@/services/audit.service';
 import type { AuthContext } from '@/types/auth.types';
 import type {
@@ -18,7 +19,8 @@ import type {
   ReverseMovementDTO,
 } from '@/types/inventory.types';
 import { AppError } from '@/utils/app-error';
-import { parseDateFilter } from '@/utils/date';
+import { withoutStockValue, withoutUnitCost } from '@/utils/visibility';
+import { parseDateFilter, resolvePeriod } from '@/utils/date';
 import { ZERO } from '@/utils/decimal';
 import { stockStatus } from '@/utils/stock';
 import { STAFF_MOVEMENT_TYPES } from '@/validations/inventory.validation';
@@ -34,6 +36,7 @@ export class InventoryService {
     private readonly ingredients: IngredientRepository,
     private readonly tenants: TenantRepository,
     private readonly audit: AuditService,
+    private readonly users: UserRepository,
   ) {}
 
   createMovement(auth: AuthContext, input: CreateMovementDTO) {
@@ -110,7 +113,12 @@ export class InventoryService {
         this.movements.list(tx, where, q.take, q.skip),
         this.movements.count(tx, where),
       ]);
-      return { items, total, take: q.take, skip: q.skip };
+      return {
+        items: items.map((m) => withoutUnitCost(auth.role, m)),
+        total,
+        take: q.take,
+        skip: q.skip,
+      };
     });
   }
 
@@ -123,7 +131,10 @@ export class InventoryService {
       const original = await this.movements.findById(tx, auth.tenantId, id);
       if (!original) throw new AppError('Movimentação não encontrada', 404);
       if (original.saleId) {
-        throw new AppError('Este consumo veio de uma venda. Exclua a venda para desfazê-lo.', 400);
+        throw new AppError(
+          'Este consumo veio de uma venda. Cancele ou corrija a venda para desfazê-lo.',
+          400,
+        );
       }
       if (original.reversesId) throw new AppError('Um estorno não pode ser estornado', 400);
       if (!(await this.movements.markReversed(tx, original.id))) {
@@ -154,7 +165,9 @@ export class InventoryService {
   }
 
   levels(auth: AuthContext) {
-    return withContext(auth, (tx) => this.computeLevels(tx, auth.tenantId));
+    return withContext(auth, async (tx) =>
+      (await this.computeLevels(tx, auth.tenantId)).map((l) => withoutStockValue(auth.role, l)),
+    );
   }
 
   async lowStock(auth: AuthContext) {
@@ -243,6 +256,100 @@ export class InventoryService {
     });
   }
 
+  // ---------- Relatórios (dono/gerente) ----------
+
+  /**
+   * Perdas e ajustes do período, por ingrediente, com valor em dinheiro (custo atual).
+   * "Precisão das estimativas": ajuste ÷ consumo registrado. Ajuste negativo = sumiu mais do
+   * que as vendas baixaram (estimativa por baixo); positivo = baixamos demais.
+   */
+  report(auth: AuthContext, q: { from?: string; to?: string }) {
+    return withContext(auth, async (tx) => {
+      const period = resolvePeriod(q, await this.tenants.findTimezone(tx, auth.tenantId));
+      const rows = await this.movements.periodReport(tx, auth.tenantId, period.from, period.to);
+      const money = (qty: number, cost: Prisma.Decimal | null) =>
+        cost ? cost.mul(qty).toDecimalPlaces(2) : null;
+
+      const items = rows.map((r) => {
+        const registeredOut = r.consumed + r.manualOut + r.lost;
+        return {
+          ...r,
+          lostValue: money(r.lost, r.costPerUnit),
+          adjustedValue: money(r.adjusted, r.costPerUnit),
+          /** Ajuste em % do que foi registrado como saída (null sem saída registrada). */
+          adjustmentPct:
+            registeredOut > 0 ? Math.round((r.adjusted / registeredOut) * 1000) / 10 : null,
+        };
+      });
+      const sum = (pick: (i: (typeof items)[number]) => Prisma.Decimal | null) =>
+        items.reduce((s, i) => s.plus(pick(i) ?? 0), ZERO);
+
+      return {
+        period,
+        totals: {
+          lostValue: sum((i) => i.lostValue),
+          adjustedValue: sum((i) => i.adjustedValue),
+          ingredientsWithLoss: items.filter((i) => i.lost > 0).length,
+          ingredientsWithoutCost: items.filter((i) => !i.costPerUnit).length,
+        },
+        items,
+      };
+    });
+  }
+
+  /** Histórico de contagens físicas (vem da auditoria de cada contagem). */
+  countHistory(auth: AuthContext, take: number, skip: number) {
+    return withContext(auth, async (tx) => {
+      const [logs, total] = await this.audit.findByAction(
+        tx,
+        auth.tenantId,
+        'stock.count',
+        take,
+        skip,
+      );
+      type CountPayload = {
+        countedAt?: string;
+        items?: { ingredientId: string; previous: string; counted: string }[];
+      };
+      const payloads = logs.map((l) => (l.payload ?? {}) as CountPayload);
+      const ingredientIds = payloads.flatMap((p) => p.items?.map((i) => i.ingredientId) ?? []);
+      const [ingredients, names] = await Promise.all([
+        this.ingredients.findManyByIds(tx, auth.tenantId, [...new Set(ingredientIds)]),
+        this.users.namesById(logs.map((l) => l.userId)),
+      ]);
+      const ingredientMap = new Map(ingredients.map((i) => [i.id, i]));
+
+      return {
+        total,
+        take,
+        skip,
+        items: logs.map((log, idx) => {
+          const items = (payloads[idx].items ?? []).map((i) => {
+            const ing = ingredientMap.get(i.ingredientId);
+            const difference = new Prisma.Decimal(i.counted).minus(i.previous);
+            return {
+              ingredientId: i.ingredientId,
+              name: ing?.name ?? '(ingrediente removido)',
+              baseUnit: ing?.baseUnit ?? 'UN',
+              previous: i.previous,
+              counted: i.counted,
+              difference,
+            };
+          });
+          return {
+            id: log.id,
+            countedAt: payloads[idx].countedAt ?? log.createdAt.toISOString(),
+            registeredAt: log.createdAt,
+            userName: log.userId ? (names.get(log.userId) ?? null) : null,
+            counted: items.length,
+            adjusted: items.filter((i) => !i.difference.isZero()).length,
+            items,
+          };
+        }),
+      };
+    });
+  }
+
   /** Saldo atual do ingrediente + aviso se ficou negativo. */
   private async stockAfter(tx: Tx, tenantId: string, ingredientId: string) {
     const stock =
@@ -261,4 +368,5 @@ export const inventoryService = new InventoryService(
   ingredientRepository,
   tenantRepository,
   auditService,
+  userRepository,
 );

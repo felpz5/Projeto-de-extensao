@@ -18,6 +18,7 @@ import type {
   IssuedSession,
   LoginDTO,
   RegisterDTO,
+  UpdateProfileDTO,
 } from '@/types/auth.types';
 import { AppError } from '@/utils/app-error';
 import { signAccessToken } from '@/utils/jwt';
@@ -250,6 +251,28 @@ export class AuthService {
   }
 
   // ---------- Auxiliares ----------
+
+  /**
+   * Edita o próprio perfil. Trocar o e-mail (que é o login) pede a senha atual: quem pegar o
+   * celular desbloqueado não consegue tomar a conta trocando o e-mail.
+   */
+  async updateProfile(auth: AuthContext, input: UpdateProfileDTO) {
+    const user = await this.users.findById(auth.userId);
+    const emailChanged = input.email !== undefined && input.email !== user.email;
+    if (emailChanged) {
+      if (!(await verifyPassword(user.passwordHash, input.currentPassword ?? ''))) {
+        // 400 (não 401): é regra do formulário, não sessão expirada.
+        throw new AppError('Senha atual incorreta', 400);
+      }
+      const taken = await this.users.findByEmail(input.email!);
+      if (taken) throw new AppError('Este e-mail já está em uso', 409);
+    }
+    await this.users.update(user.id, {
+      name: input.name,
+      email: emailChanged ? input.email : undefined,
+    });
+    return this.users.findPublicById(user.id);
+  }
 
   private activeMemberships(userId: string) {
     return withContext({ userId }, (tx) => this.memberships.listActiveForUser(tx, userId));

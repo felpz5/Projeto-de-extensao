@@ -3,7 +3,10 @@ import type { Tx } from '@/config/database';
 import type { ListProductsQuery } from '@/types/product.types';
 
 const withCategory = { category: { select: { id: true, name: true } } } as const;
-const ingredientRef = { select: { id: true, name: true, baseUnit: true } } as const;
+/** Com custo: para calcular custo e margem do produto (o service esconde do funcionário). */
+const ingredientCost = {
+  select: { id: true, name: true, baseUnit: true, costPerUnit: true },
+} as const;
 
 export class ProductRepository {
   list(tx: Tx, tenantId: string, q: ListProductsQuery) {
@@ -17,6 +20,8 @@ export class ProductRepository {
       include: {
         ...withCategory,
         _count: { select: { recipeItems: true, weightMix: true } },
+        recipeItems: { select: { quantity: true, ingredient: ingredientCost } },
+        weightMix: { select: { percentage: true, ingredient: ingredientCost } },
       },
       orderBy: { name: 'asc' },
     });
@@ -32,8 +37,8 @@ export class ProductRepository {
       where: { id, tenantId },
       include: {
         ...withCategory,
-        recipeItems: { include: { ingredient: ingredientRef } },
-        weightMix: { include: { ingredient: ingredientRef } },
+        recipeItems: { include: { ingredient: ingredientCost } },
+        weightMix: { include: { ingredient: ingredientCost } },
       },
     });
   }

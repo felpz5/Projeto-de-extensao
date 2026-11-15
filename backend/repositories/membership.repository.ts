@@ -24,6 +24,14 @@ export class MembershipRepository {
     });
   }
 
+  /**
+   * Em quantos estabelecimentos ALÉM deste a pessoa tem vínculo (ativo, desativado ou convite).
+   * Rodar com o contexto do PRÓPRIO usuário (a RLS só mostra os vínculos dele).
+   */
+  countOtherTenants(tx: Tx, userId: string, tenantId: string) {
+    return tx.membership.count({ where: { userId, tenantId: { not: tenantId } } });
+  }
+
   /** Vínculos ativos do usuário, do mais antigo para o mais novo. */
   listActiveForUser(tx: Tx, userId: string) {
     return tx.membership.findMany({

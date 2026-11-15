@@ -19,8 +19,11 @@ export const manualMovementType = z.enum([
   'ADJUSTMENT',
 ]);
 
-/** Entradas que o funcionário (STAFF) pode lançar; saídas, perdas e ajustes ficam com gerente/dono. */
-export const STAFF_MOVEMENT_TYPES = ['INITIAL', 'PURCHASE'] as const;
+/**
+ * O funcionário (STAFF) só lança COMPRA (mercadoria que chegou). Estoque inicial, saídas,
+ * perdas e ajustes ficam com gerente/dono: um "estoque inicial" a qualquer momento inflaria o saldo.
+ */
+export const STAFF_MOVEMENT_TYPES = ['PURCHASE'] as const;
 
 export const createMovementSchema = z
   .object({
@@ -76,3 +79,10 @@ export const inventoryCountSchema = z
     note: z.string().trim().max(500).optional(),
   })
   .strict();
+
+/** Relatório de perdas e ajustes de um período. */
+export const stockReportQuery = z
+  .object({ from: dateFilter.optional(), to: dateFilter.optional() })
+  .strict();
+
+export const countHistoryQuery = z.object({ ...pagination }).strict();

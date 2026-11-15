@@ -38,9 +38,20 @@ export class SaleRepository {
     return tx.saleItemIngredient.createMany({ data });
   }
 
-  /** Apaga a venda; itens e baixas de estoque saem junto (ON DELETE CASCADE). */
-  delete(tx: Tx, id: string) {
-    return tx.sale.delete({ where: { id } });
+  /**
+   * Marca a venda como cancelada (nunca apagamos vendas). Só cancela se ainda estiver concluída:
+   * devolve false se outra requisição cancelou antes.
+   */
+  async cancel(
+    tx: Tx,
+    id: string,
+    data: { canceledById: string; cancelReason: string },
+  ): Promise<boolean> {
+    const { count } = await tx.sale.updateMany({
+      where: { id, status: 'COMPLETED' },
+      data: { status: 'CANCELED', canceledAt: new Date(), ...data },
+    });
+    return count === 1;
   }
 
   // ---------- Leitura ----------
@@ -65,7 +76,7 @@ export class SaleRepository {
     return tx.sale.findMany({
       where,
       include: { items: { include: { product: { select: { id: true, name: true } } } } },
-      orderBy: { soldAt: 'desc' },
+      orderBy: [{ soldAt: 'desc' }, { createdAt: 'desc' }],
       take,
       skip,
     });
@@ -85,6 +96,47 @@ export class SaleRepository {
     return tx.sale.groupBy({ by: ['channel'], where, _sum: { totalAmount: true }, _count: true });
   }
 
+  byPayment(tx: Tx, where: Prisma.SaleWhereInput) {
+    return tx.sale.groupBy({
+      by: ['paymentMethod'],
+      where,
+      _sum: { totalAmount: true },
+      _count: true,
+    });
+  }
+
+  /**
+   * Custo estimado das vendas do período (CMV): baixas de estoque das vendas concluídas
+   * × custo atual de cada ingrediente. Baixa de ingrediente sem custo cadastrado fica de fora
+   * e é contada em `withoutCost` (para avisar que o valor está incompleto).
+   */
+  async estimatedCost(tx: Tx, tenantId: string, period: Period) {
+    const [row] = await tx.$queryRaw<{ cost: Prisma.Decimal; withoutCost: number }[]>`
+      SELECT COALESCE(SUM(-m.quantity * i.cost_per_unit), 0)::numeric(14, 2) AS cost,
+             COUNT(*) FILTER (WHERE i.cost_per_unit IS NULL)::int AS "withoutCost"
+      FROM stock_movements m
+      JOIN sales s ON s.id = m.sale_id
+      JOIN ingredients i ON i.id = m.ingredient_id
+      WHERE m.tenant_id = ${tenantId}::uuid
+        AND m.type = 'SALE_CONSUMPTION'
+        AND m.reversed_at IS NULL
+        AND m.reverses_id IS NULL
+        AND s.status = 'COMPLETED'
+        AND s.sold_at >= (CAST(${period.from} AS timestamptz) AT TIME ZONE 'UTC')
+        AND s.sold_at <= (CAST(${period.to} AS timestamptz) AT TIME ZONE 'UTC')`;
+    return { cost: row.cost, withoutCost: row.withoutCost };
+  }
+
+  /** Vendas de um dia para o fechamento de caixa (concluídas e canceladas). */
+  listForCash(tx: Tx, where: Prisma.SaleWhereInput) {
+    return tx.sale.findMany({
+      where,
+      include: { items: { include: { product: { select: { id: true, name: true } } } } },
+      orderBy: [{ soldAt: 'desc' }, { createdAt: 'desc' }],
+      take: 500,
+    });
+  }
+
   /** Pedidos e faturamento por dia, no fuso do estabelecimento. */
   dailyTotals(tx: Tx, tenantId: string, timezone: string, period: Period) {
     return tx.$queryRaw<{ day: string; orders: number; revenue: Prisma.Decimal }[]>`
@@ -93,6 +145,7 @@ export class SaleRepository {
              COALESCE(SUM(s.total_amount), 0)::numeric(14, 2) AS revenue
       FROM sales s
       WHERE s.tenant_id = ${tenantId}::uuid
+        AND s.status = 'COMPLETED'
         AND s.sold_at >= (CAST(${period.from} AS timestamptz) AT TIME ZONE 'UTC')
         AND s.sold_at <= (CAST(${period.to} AS timestamptz) AT TIME ZONE 'UTC')
       GROUP BY 1
@@ -110,7 +163,8 @@ export class SaleRepository {
       JOIN sales s ON s.id = si.sale_id
       JOIN products p ON p.id = si.product_id
       WHERE s.tenant_id = ${tenantId}::uuid
-        AND s.sold_at >= (CAST(${period.from} AS timestamptz) AT TIME ZONE 'UTC')
+        AND s.status = 'COMPLETED'
+        AND s.sold_at >=(CAST(${period.from} AS timestamptz) AT TIME ZONE 'UTC')
         AND s.sold_at <= (CAST(${period.to} AS timestamptz) AT TIME ZONE 'UTC')
       GROUP BY p.id, p.name
       ORDER BY quantity DESC, revenue DESC

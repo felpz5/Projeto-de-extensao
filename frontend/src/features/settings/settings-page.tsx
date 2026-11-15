@@ -3,6 +3,7 @@ import { PageHeader } from '@/components/ui/feedback';
 import { useAuth } from '@/features/auth/auth-context';
 import { cn } from '@/lib/utils';
 import { AccountTab } from './account-tab';
+import { AuditTab } from './audit-tab';
 import { CategoriesTab } from './categories-tab';
 import { TeamTab } from './team-tab';
 import { TenantTab } from './tenant-tab';
@@ -11,6 +12,7 @@ const TABS = [
   { key: 'estabelecimento', label: 'Estabelecimento', managerOnly: false },
   { key: 'equipe', label: 'Equipe', managerOnly: true },
   { key: 'categorias', label: 'Categorias', managerOnly: false },
+  { key: 'auditoria', label: 'Auditoria', managerOnly: true },
   { key: 'conta', label: 'Minha conta', managerOnly: false },
 ] as const;
 
@@ -46,6 +48,7 @@ export function SettingsPage() {
       {tab === 'estabelecimento' && <TenantTab />}
       {tab === 'equipe' && <TeamTab />}
       {tab === 'categorias' && <CategoriesTab />}
+      {tab === 'auditoria' && <AuditTab />}
       {tab === 'conta' && <AccountTab />}
     </>
   );

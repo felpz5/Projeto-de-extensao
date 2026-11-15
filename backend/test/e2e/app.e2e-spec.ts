@@ -5,6 +5,7 @@
  */
 import type { Express } from 'express';
 import request from 'supertest';
+import type * as AppModule from '@/app';
 import type * as Database from '@/config/database';
 import { todayIn } from '@/utils/date';
 import { sha256 } from '@/utils/token';
@@ -29,9 +30,13 @@ run('Gestock API (e2e)', () => {
     api()[method](`/api${url}`).set('Authorization', `Bearer ${B.token}`);
 
   beforeAll(async () => {
-    // Importa só aqui: sem DATABASE_URL a suíte é pulada antes de validar o ambiente.
-    ({ app } = await import('@/app'));
-    ({ prisma, withContext } = await import('@/config/database'));
+    // Carrega só aqui: sem DATABASE_URL a suíte é pulada antes de validar o ambiente.
+    // require (não import()): o projeto é CommonJS e o import() dinâmico seguiria a resolução
+    // de ESM, que não conhece o alias "@/".
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    ({ app } = require('@/app') as typeof AppModule);
+    ({ prisma, withContext } = require('@/config/database') as typeof Database);
+    /* eslint-enable @typescript-eslint/no-require-imports */
 
     const ra = await api()
       .post('/api/auth/register')
@@ -135,6 +140,25 @@ run('Gestock API (e2e)', () => {
       })
       .expect(200);
     expect(withRecipe.body.recipeItems).toHaveLength(2);
+  });
+
+  it('calcula custo e margem do produto (receita e composição por peso)', async () => {
+    // Milkshake: 300 g de açaí × R$ 0,03 = R$ 9,00; leite sem custo cadastrado.
+    const shake = await asA('get', `/products/${ids.shake}`).expect(200);
+    expect(Number(shake.body.costing.cost)).toBe(9);
+    expect(Number(shake.body.costing.margin)).toBe(9);
+    expect(shake.body.costing.marginPct).toBe(50);
+    expect(shake.body.costing.missingCost).toEqual(['Leite']);
+
+    // Açaí no peso: 1 kg = 700 g de açaí × 0,03 = R$ 21,00 (creme sem custo).
+    const peso = await asA('get', `/products/${ids.peso}`).expect(200);
+    expect(peso.body.costing.basis).toBe('KG');
+    expect(Number(peso.body.costing.cost)).toBe(21);
+    expect(peso.body.costing.coveragePct).toBe(100);
+    expect(peso.body.costing.estimated).toBe(true);
+
+    const list = await asA('get', '/products').expect(200);
+    expect(list.body.find((p: { id: string }) => p.id === ids.shake).costing.cost).toBe('9');
   });
 
   describe('isolamento entre estabelecimentos', () => {
@@ -253,14 +277,54 @@ run('Gestock API (e2e)', () => {
       expect(res.body.stockImpact.exactMovements).toBe(2);
     });
 
-    it('excluir a venda desfaz a baixa de estoque', async () => {
+    it('cancelar a venda estorna o estoque, mas a venda continua no histórico', async () => {
       const before = Number((await asA('get', `/ingredients/${ids.leite}`)).body.stock);
       const sale = await asA('post', '/sales')
-        .send({ channel: 'IN_STORE', items: [{ productId: ids.shake }] })
+        .send({ channel: 'IN_STORE', paymentMethod: 'CASH', items: [{ productId: ids.shake }] })
         .expect(201);
+      expect(sale.body.paymentMethod).toBe('CASH');
       expect(Number((await asA('get', `/ingredients/${ids.leite}`)).body.stock)).toBe(before - 200);
-      await asA('delete', `/sales/${sale.body.id}`).expect(204);
+
+      // Não existe mais exclusão: só cancelamento com motivo.
+      await asA('delete', `/sales/${sale.body.id}`).expect(404);
+      await asA('post', `/sales/${sale.body.id}/cancel`).send({ reason: '' }).expect(422);
+      const canceled = await asA('post', `/sales/${sale.body.id}/cancel`)
+        .send({ reason: 'Cliente desistiu' })
+        .expect(200);
+      expect(canceled.body.status).toBe('CANCELED');
+      expect(canceled.body.cancelReason).toBe('Cliente desistiu');
       expect(Number((await asA('get', `/ingredients/${ids.leite}`)).body.stock)).toBe(before);
+
+      // Continua no histórico, com o estorno das baixas; não dá para cancelar duas vezes.
+      const detail = await asA('get', `/sales/${sale.body.id}`).expect(200);
+      expect(detail.body.status).toBe('CANCELED');
+      expect(detail.body.movements.some((m: { reversesId: string | null }) => m.reversesId)).toBe(
+        true,
+      );
+      await asA('post', `/sales/${sale.body.id}/cancel`).send({ reason: 'De novo' }).expect(409);
+
+      // Cancelada não conta como faturamento.
+      const list = await asA('get', '/sales?status=CANCELED').expect(200);
+      expect(list.body.items.map((s: { id: string }) => s.id)).toContain(sale.body.id);
+    });
+
+    it('corrigir a venda cancela a original e registra a nova ligada a ela, na mesma data', async () => {
+      const original = await asA('post', '/sales')
+        .send({
+          channel: 'IN_STORE',
+          paymentMethod: 'PIX',
+          soldAt: new Date(Date.now() - 3 * 60 * 60_000).toISOString(),
+          items: [{ productId: ids.shake, quantity: 3 }],
+        })
+        .expect(201);
+      const fixed = await asA('post', `/sales/${original.body.id}/correct`)
+        .send({ channel: 'IN_STORE', paymentMethod: 'PIX', items: [{ productId: ids.shake }] })
+        .expect(201);
+      expect(fixed.body.correctsId).toBe(original.body.id);
+      expect(fixed.body.soldAt).toBe(original.body.soldAt);
+      expect(Number(fixed.body.totalAmount)).toBe(18);
+      const old = await asA('get', `/sales/${original.body.id}`).expect(200);
+      expect(old.body.status).toBe('CANCELED');
     });
 
     it('contagem de inventário gera ajuste com a diferença', async () => {
@@ -408,7 +472,8 @@ run('Gestock API (e2e)', () => {
         .send({ ingredientId: ids.acai, type: 'PURCHASE', quantity: 10 })
         .expect(201);
       await api().post('/api/ingredients').set(auth).send({ name: 'X', baseUnit: 'G' }).expect(403);
-      for (const type of ['ADJUSTMENT', 'MANUAL_OUT', 'LOSS']) {
+      // "Estoque inicial" a qualquer momento inflaria o saldo: só gerente/dono.
+      for (const type of ['INITIAL', 'ADJUSTMENT', 'MANUAL_OUT', 'LOSS']) {
         await api()
           .post('/api/inventory/movements')
           .set(auth)
@@ -424,6 +489,100 @@ run('Gestock API (e2e)', () => {
       expect(dash.body.sales).toBeNull();
       expect(dash.body.topProducts).toBeNull();
       expect(dash.body.stock.totalIngredients).toBe(4);
+
+      // Dados financeiros saem da resposta para o funcionário (não só da tela).
+      expect(dash.body.stock.estimatedValue).toBeNull();
+      const ingredients = await api().get('/api/ingredients').set(auth).expect(200);
+      expect(ingredients.body.every((i: { costPerUnit: unknown }) => i.costPerUnit === null)).toBe(
+        true,
+      );
+      const levels = await api().get('/api/inventory/levels').set(auth).expect(200);
+      expect(levels.body.every((l: { stockValue: unknown }) => l.stockValue === null)).toBe(true);
+      const product = await api().get(`/api/products/${ids.shake}`).set(auth).expect(200);
+      expect(product.body.costing).toBeNull();
+      await api().get('/api/inventory/report').set(auth).expect(403);
+      await api().get('/api/tenant/audit').set(auth).expect(403);
+    });
+
+    it('funcionário vê o próprio caixa e corrige a própria venda só nos primeiros minutos', async () => {
+      const auth = { Authorization: `Bearer ${staffToken}` };
+      const mine = await api()
+        .post('/api/sales')
+        .set(auth)
+        .send({ channel: 'IN_STORE', paymentMethod: 'PIX', items: [{ productId: ids.shake }] })
+        .expect(201);
+      expect(mine.body.editableUntil).toBeTruthy();
+      const ownerSale = await asA('post', '/sales')
+        .send({ channel: 'IN_STORE', paymentMethod: 'CASH', items: [{ productId: ids.shake }] })
+        .expect(201);
+
+      // Caixa: só as vendas dele, por forma de pagamento.
+      const cash = await api().get('/api/sales/cash').set(auth).expect(200);
+      const cashIds = cash.body.sales.map((s: { id: string }) => s.id);
+      expect(cashIds).toContain(mine.body.id);
+      expect(cashIds).not.toContain(ownerSale.body.id);
+      expect(cash.body.byPayment.find((p: { method: string }) => p.method === 'PIX')).toBeTruthy();
+      // Mesmo pedindo o caixa de outra pessoa, recebe o próprio.
+      const forced = await api()
+        .get(`/api/sales/cash?userId=${ownerSale.body.createdById}`)
+        .set(auth)
+        .expect(200);
+      expect(forced.body.sales.map((s: { id: string }) => s.id)).not.toContain(ownerSale.body.id);
+
+      // Venda de outra pessoa "não existe" para ele.
+      await api().get(`/api/sales/${ownerSale.body.id}`).set(auth).expect(404);
+      await api()
+        .post(`/api/sales/${ownerSale.body.id}/cancel`)
+        .set(auth)
+        .send({ reason: 'Teste' })
+        .expect(404);
+
+      // Corrige a própria venda recém-registrada.
+      const fixed = await api()
+        .post(`/api/sales/${mine.body.id}/correct`)
+        .set(auth)
+        .send({
+          channel: 'IN_STORE',
+          paymentMethod: 'CASH',
+          items: [{ productId: ids.shake, quantity: 2 }],
+        })
+        .expect(201);
+
+      // Passado o prazo, só o gerente.
+      await withContext({ tenantId: A.tenantId }, (tx) =>
+        tx.sale.update({
+          where: { id: fixed.body.id },
+          data: { createdAt: new Date(Date.now() - 20 * 60_000) },
+        }),
+      );
+      const late = await api()
+        .post(`/api/sales/${fixed.body.id}/cancel`)
+        .set(auth)
+        .send({ reason: 'Erro' })
+        .expect(403);
+      expect(late.body.message).toMatch(/15 minutos/);
+      await asA('post', `/sales/${fixed.body.id}/cancel`).send({ reason: 'Erro' }).expect(200);
+    });
+
+    it('dono redefine a senha de um funcionário que esqueceu a dele', async () => {
+      const members = await asA('get', '/tenant/members').expect(200);
+      const staff = members.body.find(
+        (m: { user: { email: string } }) => m.user.email === `staff${suffix}@teste.com`,
+      );
+      await asA('post', `/tenant/members/${staff.user.id}/password`)
+        .send({ password: 'provisoria-nova-2' })
+        .expect(204);
+      // Sessões antigas dele caem; a senha antiga não vale mais; a nova é provisória.
+      await api()
+        .post('/api/auth/login')
+        .send({ email: `staff${suffix}@teste.com`, password: 'senha-nova-do-func' })
+        .expect(401);
+      const login = await api()
+        .post('/api/auth/login')
+        .send({ email: `staff${suffix}@teste.com`, password: 'provisoria-nova-2' })
+        .expect(200);
+      expect(login.body.user.mustChangePassword).toBe(true);
+      staffToken = login.body.accessToken;
     });
 
     it('conta que já existe só entra no estabelecimento depois de aceitar o convite', async () => {
@@ -446,6 +605,84 @@ run('Gestock API (e2e)', () => {
 
       await asB('post', `/auth/invitations/${A.tenantId}/accept`).expect(200);
       await asB('post', '/auth/switch-tenant').send({ tenantId: A.tenantId }).expect(200);
+    });
+
+    it('gerente adiciona e gerencia funcionário, mas não cria gerente nem mexe no dono', async () => {
+      // B agora é gerente em A.
+      const switched = await asB('post', '/auth/switch-tenant')
+        .send({ tenantId: A.tenantId })
+        .expect(200);
+      const asManager = { Authorization: `Bearer ${switched.body.accessToken}` };
+      const added = await api()
+        .post('/api/tenant/members')
+        .set(asManager)
+        .send({
+          email: `staff2${suffix}@teste.com`,
+          role: 'STAFF',
+          name: 'Func 2',
+          password: 'provisoria-func-2',
+        })
+        .expect(201);
+      await api()
+        .post('/api/tenant/members')
+        .set(asManager)
+        .send({
+          email: `ger${suffix}@teste.com`,
+          role: 'MANAGER',
+          name: 'Gerente Novo',
+          password: 'senha-123-x',
+        })
+        .expect(403);
+      await api()
+        .patch(`/api/tenant/members/${added.body.user.id}`)
+        .set(asManager)
+        .send({ role: 'MANAGER' })
+        .expect(403);
+      await api()
+        .post(`/api/tenant/members/${added.body.user.id}/password`)
+        .set(asManager)
+        .send({ password: 'outra-provisoria-3' })
+        .expect(204);
+    });
+
+    it('não redefine a senha de conta usada em outro estabelecimento', async () => {
+      // B é dono do próprio estabelecimento: o dono de A não pode trocar a senha dele.
+      const members = await asA('get', '/tenant/members').expect(200);
+      const b = members.body.find(
+        (m: { user: { email: string } }) => m.user.email === `b${suffix}@teste.com`,
+      );
+      await asA('post', `/tenant/members/${b.user.id}/password`)
+        .send({ password: 'tomei-a-conta-1' })
+        .expect(409);
+    });
+
+    it('edita o próprio perfil; trocar o e-mail exige a senha atual', async () => {
+      const auth = { Authorization: `Bearer ${staffToken}` };
+      const renamed = await api().patch('/api/auth/me').set(auth).send({ name: 'Func Novo' });
+      expect(renamed.status).toBe(200);
+      expect(renamed.body.name).toBe('Func Novo');
+      await api()
+        .patch('/api/auth/me')
+        .set(auth)
+        .send({ email: `novo${suffix}@teste.com` })
+        .expect(422);
+      await api()
+        .patch('/api/auth/me')
+        .set(auth)
+        .send({ email: `novo${suffix}@teste.com`, currentPassword: 'errada-123' })
+        .expect(400);
+      await api()
+        .patch('/api/auth/me')
+        .set(auth)
+        .send({ email: `a${suffix}@teste.com`, currentPassword: 'provisoria-nova-2' })
+        .expect(409);
+    });
+
+    it('auditoria mostra quem cancelou venda e redefiniu senha', async () => {
+      const audit = await asA('get', '/tenant/audit').expect(200);
+      const actions = audit.body.items.map((i: { action: string }) => i.action);
+      expect(actions).toEqual(expect.arrayContaining(['sale.cancel', 'member.reset_password']));
+      expect(audit.body.items[0].userName).toBeTruthy();
     });
   });
 
@@ -496,6 +733,39 @@ run('Gestock API (e2e)', () => {
       expect(res.body.stock.totalIngredients).toBe(4);
       expect(res.body.recentMovements.length).toBeGreaterThan(0);
       expect(res.body.sales.byDay.length).toBeGreaterThan(0);
+    });
+
+    it('resumo traz lucro bruto estimado e vendas por forma de pagamento', async () => {
+      const res = await asA('get', '/sales/summary').expect(200);
+      expect(Number(res.body.estimatedCost)).toBeGreaterThan(0);
+      expect(Number(res.body.grossProfit)).toBeCloseTo(
+        Number(res.body.revenue) - Number(res.body.estimatedCost),
+        2,
+      );
+      expect(res.body.byPayment.length).toBeGreaterThan(0);
+    });
+
+    it('relatório de perdas/ajustes e histórico de contagens', async () => {
+      const report = await asA('get', '/inventory/report').expect(200);
+      const acai = report.body.items.find(
+        (i: { ingredientId: string }) => i.ingredientId === ids.acai,
+      );
+      expect(acai.consumed).toBeGreaterThan(0);
+      expect(acai.consumedEstimated).toBeGreaterThan(0);
+
+      const counts = await asA('get', '/inventory/counts').expect(200);
+      expect(counts.body.total).toBeGreaterThan(0);
+      expect(counts.body.items[0].items[0]).toHaveProperty('difference');
+      expect(counts.body.items[0].userName).toBeTruthy();
+    });
+
+    it('"minhas lojas" resume só os estabelecimentos em que a pessoa é dona ou gerente', async () => {
+      const res = await asB('get', '/auth/stores').expect(200);
+      const ids = res.body.stores.map((s: { tenant: { id: string } }) => s.tenant.id);
+      expect(ids).toEqual(expect.arrayContaining([A.tenantId, B.tenantId]));
+      const a = res.body.stores.find((s: { tenant: { id: string } }) => s.tenant.id === A.tenantId);
+      expect(a.role).toBe('MANAGER');
+      expect(a.period.orders).toBeGreaterThan(0);
     });
   });
 

@@ -9,6 +9,3 @@ coverage/
 .DS_Store
 .vscode/*
 !.vscode/extensions.json
-
-# Projeto usado só como referência de organização (tem .env próprio): não versionar.
-Backend-desmostracao/

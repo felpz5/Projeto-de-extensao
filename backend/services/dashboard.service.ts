@@ -8,6 +8,7 @@ import { inventoryService, type InventoryService } from '@/services/inventory.se
 import { saleService, type SaleService } from '@/services/sale.service';
 import type { AuthContext } from '@/types/auth.types';
 import type { PeriodQuery } from '@/types/sale.types';
+import { withoutStockValue, withoutUnitCost } from '@/utils/visibility';
 
 export class DashboardService {
   constructor(
@@ -44,10 +45,13 @@ export class DashboardService {
           ok: levels.filter((l) => l.status === 'OK').length,
           low: levels.filter((l) => l.status === 'LOW').length,
           out: levels.filter((l) => l.status === 'OUT').length,
-          estimatedValue: Math.round(stockValue * 100) / 100,
-          alerts: levels.filter((l) => l.status !== 'OK'),
+          // valor do estoque é dado financeiro: só dono/gerente
+          estimatedValue: isManager ? Math.round(stockValue * 100) / 100 : null,
+          alerts: levels
+            .filter((l) => l.status !== 'OK')
+            .map((l) => withoutStockValue(auth.role, l)),
         },
-        recentMovements,
+        recentMovements: recentMovements.map((m) => withoutUnitCost(auth.role, m)),
         reorderSuggestions: reorder && {
           disclaimer: reorder.disclaimer,
           items: reorder.items

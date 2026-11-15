@@ -1,11 +1,12 @@
 import type { PricingMode, Prisma, QuantitySource } from '@prisma/client';
 import type { z } from 'zod';
 import type { periodQuery } from '@/validations/common.validation';
-import type { createSaleSchema, listSalesQuery } from '@/validations/sale.validation';
+import type { cashQuery, createSaleSchema, listSalesQuery } from '@/validations/sale.validation';
 
 export type CreateSaleDTO = z.infer<typeof createSaleSchema>;
 export type ListSalesQuery = z.infer<typeof listSalesQuery>;
 export type PeriodQuery = z.infer<typeof periodQuery>;
+export type CashQuery = z.infer<typeof cashQuery>;
 
 // ---------- Regras de consumo (services/sale-consumption.ts) ----------
 
