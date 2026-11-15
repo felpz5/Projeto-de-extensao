@@ -1,0 +1,105 @@
+# Gestock — ambiente completo: banco + back-end + front-end.
+#
+#   cp .env.example .env            # preencha as senhas e o segredo JWT
+#   docker compose up --build -d    # sobe tudo → http://localhost:8080
+#   docker compose --profile seed run --rm seed   # (opcional) dados de demonstração
+#
+# Ordem de subida: db (saudável) → migrate (migrations + usuário gestock_app) → backend → frontend.
+
+name: gestock
+
+x-owner-db-url: &owner-db-url postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/gestock
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gestock
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      # Exposto para desenvolver o back-end fora do Docker (npm run dev) e usar o Prisma Studio.
+      - '${DB_PORT:-5432}:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d gestock']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Roda uma vez a cada `up`: aplica migrations pendentes e cria/atualiza o usuário gestock_app.
+  migrate:
+    image: gestock-backend-tools
+    build:
+      context: ./backend
+      target: tools
+    environment:
+      DATABASE_URL: *owner-db-url
+      DIRECT_URL: *owner-db-url
+    command:
+      - sh
+      - -c
+      - >-
+        npx prisma migrate deploy &&
+        sed "s|TROQUE-ESTA-SENHA|${APP_DB_PASSWORD:?defina APP_DB_PASSWORD no .env}|g" prisma/sql/app-role.sql
+        | npx prisma db execute --stdin --schema prisma/schema.prisma &&
+        echo "Banco pronto."
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
+
+  backend:
+    build:
+      context: ./backend
+      target: runtime
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3333
+      # A API usa o usuário SEM BYPASSRLS: o isolamento entre estabelecimentos vale sempre.
+      DATABASE_URL: postgresql://gestock_app:${APP_DB_PASSWORD}@db:5432/gestock
+      DIRECT_URL: *owner-db-url
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?defina JWT_ACCESS_SECRET no .env}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-7}
+      CORS_ORIGIN: http://localhost:${FRONTEND_PORT:-8080}
+      COOKIE_SAMESITE: strict
+      # Atrás do nginx do front: o rate limit precisa do IP real do cliente.
+      TRUST_PROXY: 1
+    ports:
+      - '${API_PORT:-3333}:3333'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    ports:
+      - '${FRONTEND_PORT:-8080}:80'
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # Opcional: açaiteria de demonstração (login demo@gestock.app / gestock123).
+  seed:
+    image: gestock-backend-tools
+    build:
+      context: ./backend
+      target: tools
+    profiles: ['seed']
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: *owner-db-url
+      DIRECT_URL: *owner-db-url
+    command: ['npm', 'run', 'db:seed']
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  db-data:
