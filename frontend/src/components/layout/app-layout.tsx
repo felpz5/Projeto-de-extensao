@@ -1,220 +1,187 @@
-import { useQueryClient } from '@tanstack/react-query';
-import { Building2, ChevronDown, LogOut, Menu } from 'lucide-react';
-import { useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router';
-import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
-import { Dialog } from '@/components/ui/dialog';
-import { Badge } from '@/components/ui/badge';
+import { Boxes, ChevronDown, LayoutDashboard, Menu, PanelLeftClose, PanelLeftOpen, ShoppingCart, Wallet } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Link, NavLink, Outlet, useLocation } from 'react-router';
+import { buttonVariants } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/feedback';
 import { useAuth } from '@/features/auth/auth-context';
-import { errorMessage } from '@/lib/api';
-import { ROLE_LABEL } from '@/lib/format';
+import { useMediaQuery, usePersistentState } from '@/lib/hooks';
 import { useMe, useTenant } from '@/lib/queries';
 import { cn } from '@/lib/utils';
-import { InstallButton } from '@/components/pwa';
-import { Logo } from './logo';
-import { visibleNav } from './nav';
+import { Logo, LogoMark } from './logo';
+import { MobileDrawer } from './mobile-drawer';
+import { currentNavItem, visibleGroups } from './nav';
+import { NavGroups } from './sidebar';
+import { TenantSwitcher } from './tenant-switcher';
+import { AlertsBell, UserMenu } from './topbar-menus';
 
+/**
+ * Estrutura do app, em três tamanhos:
+ * - celular (< 768px): barra superior com menu hambúrguer + barra inferior com o botão Vender;
+ * - tablet (768–1023px): trilho lateral só com ícones; o hambúrguer abre o menu completo;
+ * - computador (≥ 1024px): menu lateral completo; o hambúrguer recolhe/expande (e lembra).
+ * Respeita as áreas seguras do celular (entalhe, barra de gestos) quando instalado como app.
+ */
 export function AppLayout() {
-  const { session, isManager, logout } = useAuth();
-  const [menuOpen, setMenuOpen] = useState(false);
+  const { isManager, session } = useAuth();
+  const location = useLocation();
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [tenantOpen, setTenantOpen] = useState(false);
+  const [collapsed, setCollapsed] = usePersistentState('gestock:menu-recolhido', false);
+
   // Fuso do estabelecimento: as páginas só renderizam depois dele (datas e "hoje" dos filtros).
-  // Se a consulta falhar, segue com o fuso do navegador em vez de travar o app.
   const tenant = useTenant();
   const me = useMe();
-  const managedStores =
-    me.data?.tenants.filter((t) => t.role === 'OWNER' || t.role === 'MANAGER').length ?? 0;
-  const items = visibleNav(isManager, managedStores);
+  const managedStores = me.data?.tenants.filter((t) => t.role === 'OWNER' || t.role === 'MANAGER').length ?? 0;
+  const groups = visibleGroups(isManager, managedStores);
+  const current = currentNavItem(location.pathname);
+  const expanded = isDesktop && !collapsed;
+
+  // Navegou: fecha a gaveta (o clique no item já fecha; isto cobre voltar/avançar do navegador).
+  useEffect(() => setDrawerOpen(false), [location.pathname]);
+
+  const onHamburger = () => (isDesktop ? setCollapsed((c) => !c) : setDrawerOpen(true));
 
   return (
-    <div className="min-h-dvh lg:pl-64 print:pl-0">
-      {/* Menu lateral (computador) */}
-      <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col print:!hidden border-r border-navy-700 bg-navy-900 lg:flex">
-        <div className="p-5">
-          <Logo />
+    <div className={cn('min-h-dvh transition-[padding] duration-300 md:pl-[76px] print:!pl-0', expanded && 'lg:pl-64')}>
+      {/* Menu lateral: trilho de ícones (tablet/recolhido) ou completo (computador) */}
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-navy-800 bg-navy-900/95 pl-[env(safe-area-inset-left)] backdrop-blur transition-[width] duration-300 md:flex print:!hidden',
+          expanded ? 'w-64' : 'w-[76px]',
+        )}
+      >
+        <div className={cn('flex h-16 shrink-0 items-center', expanded ? 'px-5' : 'justify-center')}>
+          <Link to="/" aria-label="Gestock — início">
+            {expanded ? (
+              <Logo />
+            ) : (
+              <span className="flex size-10 items-center justify-center rounded-xl border border-white/10 bg-gradient-to-br from-[#0B2A6B] to-[#001849] p-2 text-white">
+                <LogoMark className="size-full" />
+              </span>
+            )}
+          </Link>
         </div>
-        <nav aria-label="Principal" className="flex-1 overflow-y-auto px-3">
-          <NavList items={items} />
+        <nav aria-label="Principal" className={cn('flex-1 overflow-y-auto overflow-x-hidden py-3', expanded ? 'px-3' : 'px-2')}>
+          <NavGroups groups={groups} compact={!expanded} />
         </nav>
-        <div className="border-t border-navy-700 p-3">
-          <p className="truncate px-3 text-sm font-medium">{session?.user.name}</p>
-          <p className="truncate px-3 text-xs text-muted">{session?.user.email}</p>
-          <InstallButton className="mt-3 w-full" />
-          <Button variant="ghost" size="sm" className="mt-2 w-full justify-start" onClick={() => logout()}>
-            <LogOut aria-hidden /> Sair
-          </Button>
-        </div>
+        {isDesktop && (
+          <div className="border-t border-navy-800 p-3">
+            <button
+              type="button"
+              onClick={() => setCollapsed((c) => !c)}
+              className={cn(
+                'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-muted transition-colors hover:bg-navy-800 hover:text-white',
+                !expanded && 'justify-center px-0',
+              )}
+              aria-label={expanded ? 'Recolher menu' : 'Expandir menu'}
+            >
+              {expanded ? <PanelLeftClose className="size-[18px]" aria-hidden /> : <PanelLeftOpen className="size-[18px]" aria-hidden />}
+              {expanded && 'Recolher menu'}
+            </button>
+          </div>
+        )}
       </aside>
 
       {/* Barra superior */}
-      <header className="sticky top-0 z-30 flex h-14 print:hidden items-center gap-3 border-b border-navy-700 bg-navy-950/90 px-4 backdrop-blur">
-        <Logo className="lg:hidden" />
-        <button
-          type="button"
-          onClick={() => setTenantOpen(true)}
-          className="ml-auto flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-navy-800 lg:ml-0"
-          aria-label="Trocar de estabelecimento"
-        >
-          <Building2 className="size-4 shrink-0 text-muted" aria-hidden />
-          <span className="truncate font-medium">{session?.tenant.name}</span>
-          <Badge className="hidden sm:inline-flex">{session && ROLE_LABEL[session.tenant.role]}</Badge>
-          <ChevronDown className="size-4 shrink-0 text-muted" aria-hidden />
-        </button>
+      <header className="sticky top-0 z-30 border-b border-navy-800 bg-navy-950/85 pt-[env(safe-area-inset-top)] backdrop-blur-md print:hidden">
+        <div className="flex h-16 items-center gap-2 px-3 sm:px-4 lg:px-6">
+          <button
+            type="button"
+            onClick={onHamburger}
+            aria-label={isDesktop ? (collapsed ? 'Expandir menu' : 'Recolher menu') : 'Abrir menu'}
+            aria-expanded={isDesktop ? !collapsed : drawerOpen}
+            className="flex size-10 shrink-0 items-center justify-center rounded-xl text-muted transition-colors hover:bg-navy-800 hover:text-white"
+          >
+            <Menu className="size-5" aria-hidden />
+          </button>
+
+          {/* Seção atual + estabelecimento (toque para trocar) */}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold sm:text-base">{current?.label ?? 'Gestock'}</p>
+            <button
+              type="button"
+              onClick={() => setTenantOpen(true)}
+              className="flex max-w-full items-center gap-1 text-xs text-muted transition-colors hover:text-white"
+              aria-label={`Estabelecimento: ${session?.tenant.name}. Trocar`}
+            >
+              <span className="truncate">{session?.tenant.name}</span>
+              <ChevronDown className="size-3 shrink-0" aria-hidden />
+            </button>
+          </div>
+
+          <Link
+            to="/vender"
+            className={cn(buttonVariants({ size: 'sm' }), 'hidden shadow-lg shadow-accent/20 sm:inline-flex', location.pathname === '/vender' && 'invisible')}
+          >
+            <ShoppingCart aria-hidden /> Nova venda
+          </Link>
+          <AlertsBell />
+          <UserMenu onSwitchTenant={() => setTenantOpen(true)} />
+        </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 pb-28 pt-5 lg:pb-10">
+      <main
+        key={location.pathname}
+        className="mx-auto w-full max-w-7xl px-4 pb-32 pt-5 motion-safe:animate-page-in sm:px-6 md:pb-12 lg:px-8 lg:pt-7"
+      >
         {tenant.isPending ? <Spinner /> : <Outlet />}
       </main>
 
-      {/* Barra inferior (celular) */}
-      <nav
-        aria-label="Atalhos"
-        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-navy-700 bg-navy-900 pb-[env(safe-area-inset-bottom)] lg:hidden print:hidden"
-      >
-        {items
-          .filter((i) => i.mobile)
-          .map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === '/'}
-              className={({ isActive }) =>
-                cn(
-                  'flex flex-col items-center gap-1 py-2.5 text-xs',
-                  isActive ? 'text-accent' : 'text-muted',
-                )
-              }
-            >
-              <item.icon className="size-5" aria-hidden />
-              {item.label}
-            </NavLink>
-          ))}
-        <button
-          type="button"
-          onClick={() => setMenuOpen(true)}
-          className="flex flex-col items-center gap-1 py-2.5 text-xs text-muted"
-        >
-          <Menu className="size-5" aria-hidden />
-          Menu
-        </button>
-      </nav>
+      <BottomNav onMenu={() => setDrawerOpen(true)} />
 
-      <Dialog open={menuOpen} onOpenChange={setMenuOpen} title="Menu">
-        <NavList items={items} onNavigate={() => setMenuOpen(false)} />
-        <InstallButton size="md" className="mt-4 w-full" onDone={() => setMenuOpen(false)} />
-        <Button variant="ghost" className="mt-3 w-full justify-start" onClick={() => logout()}>
-          <LogOut aria-hidden /> Sair
-        </Button>
-      </Dialog>
-
+      <MobileDrawer
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        groups={groups}
+        onSwitchTenant={() => setTenantOpen(true)}
+      />
       <TenantSwitcher open={tenantOpen} onOpenChange={setTenantOpen} />
     </div>
   );
 }
 
-function NavList({ items, onNavigate }: { items: ReturnType<typeof visibleNav>; onNavigate?: () => void }) {
+/** Barra inferior do celular: atalhos do dia a dia, com o "Vender" em destaque no centro. */
+function BottomNav({ onMenu }: { onMenu: () => void }) {
+  const link = ({ isActive }: { isActive: boolean }) =>
+    cn(
+      'flex flex-1 flex-col items-center justify-center gap-1 pt-2 text-[11px] font-medium transition-colors',
+      isActive ? 'text-accent' : 'text-muted',
+    );
   return (
-    <ul className="flex flex-col gap-1">
-      {items.map((item) => (
-        <li key={item.to}>
+    <nav
+      aria-label="Atalhos"
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-navy-800 bg-navy-900/95 pb-[max(env(safe-area-inset-bottom),0.5rem)] backdrop-blur-md md:hidden print:hidden"
+    >
+      <div className="mx-auto flex h-14 max-w-md items-stretch px-2">
+        <NavLink to="/" end className={link}>
+          <LayoutDashboard className="size-5" aria-hidden /> Início
+        </NavLink>
+        <NavLink to="/caixa" className={link}>
+          <Wallet className="size-5" aria-hidden /> Caixa
+        </NavLink>
+        {/* botão central elevado */}
+        <div className="flex flex-1 justify-center">
           <NavLink
-            to={item.to}
-            end={item.to === '/'}
-            onClick={onNavigate}
+            to="/vender"
+            aria-label="Nova venda"
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                isActive ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-navy-800 hover:text-white',
+                '-mt-6 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-accent to-accent-strong text-navy-950 shadow-lg shadow-accent/30 ring-4 ring-navy-950 transition-transform active:scale-95',
+                isActive && 'ring-accent/30',
               )
             }
           >
-            <item.icon className="size-4" aria-hidden />
-            {item.label}
+            <ShoppingCart className="size-6" aria-hidden />
           </NavLink>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** Lista os estabelecimentos do usuário e os convites pendentes. */
-function TenantSwitcher({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
-  const { session, switchTenant } = useAuth();
-  const me = useMe();
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const [busy, setBusy] = useState<string | null>(null);
-
-  const choose = async (tenantId: string) => {
-    if (tenantId === session?.tenant.id) return onOpenChange(false);
-    setBusy(tenantId);
-    try {
-      await switchTenant(tenantId);
-      onOpenChange(false);
-      navigate('/');
-      toast.success('Estabelecimento trocado.');
-    } catch (err) {
-      toast.error(errorMessage(err));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const invitations = me.data?.invitations ?? [];
-  const managed = me.data?.tenants.filter((t) => t.role === 'OWNER' || t.role === 'MANAGER').length ?? 0;
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange} title="Estabelecimentos" description="Escolha onde você quer trabalhar agora.">
-      <ul className="flex flex-col gap-2">
-        {(me.data?.tenants ?? []).map((t) => (
-          <li key={t.id}>
-            <button
-              type="button"
-              onClick={() => choose(t.id)}
-              disabled={busy !== null}
-              className={cn(
-                'flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-3 text-left text-sm',
-                t.id === session?.tenant.id
-                  ? 'border-accent bg-accent/10'
-                  : 'border-navy-700 hover:bg-navy-800',
-              )}
-            >
-              <span className="font-medium">{t.name}</span>
-              <Badge>{busy === t.id ? 'Abrindo…' : ROLE_LABEL[t.role]}</Badge>
-            </button>
-          </li>
-        ))}
-      </ul>
-      {managed > 1 && (
-        <Button
-          variant="secondary"
-          className="mt-4 w-full"
-          onClick={() => {
-            onOpenChange(false);
-            navigate('/lojas');
-          }}
-        >
-          <Building2 aria-hidden /> Ver resumo de todas as lojas
-        </Button>
-      )}
-      {invitations.length > 0 && (
-        <p className="mt-4 text-sm text-muted">
-          Você tem {invitations.length} convite(s) pendente(s).{' '}
-          <button
-            type="button"
-            className="font-semibold text-accent hover:underline"
-            onClick={() => {
-              onOpenChange(false);
-              queryClient.invalidateQueries({ queryKey: ['me'] });
-              navigate('/configuracoes?aba=conta');
-            }}
-          >
-            Ver convites
-          </button>
-        </p>
-      )}
-    </Dialog>
+        </div>
+        <NavLink to="/estoque" className={link}>
+          <Boxes className="size-5" aria-hidden /> Estoque
+        </NavLink>
+        <button type="button" onClick={onMenu} className={link({ isActive: false })} aria-label="Abrir menu">
+          <Menu className="size-5" aria-hidden /> Menu
+        </button>
+      </div>
+    </nav>
   );
 }

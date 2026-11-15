@@ -8,10 +8,18 @@
 
 name: gestock
 
+# Logs dos containers com limite (3 arquivos de 10 MB): sem isso crescem até lotar o disco.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '3'
+
 x-owner-db-url: &owner-db-url postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/gestock
 
 services:
   db:
+    logging: *logging
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -21,8 +29,9 @@ services:
     volumes:
       - db-data:/var/lib/postgresql/data
     ports:
-      # Exposto para desenvolver o back-end fora do Docker (npm run dev) e usar o Prisma Studio.
-      - '${DB_PORT:-5432}:5432'
+      # Só nesta máquina (127.0.0.1): dá para desenvolver o back-end fora do Docker e usar o
+      # Prisma Studio, mas o banco NUNCA fica acessível pela internet num servidor.
+      - '127.0.0.1:${DB_PORT:-5432}:5432'
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres -d gestock']
       interval: 5s
@@ -31,6 +40,7 @@ services:
 
   # Roda uma vez a cada `up`: aplica migrations pendentes e cria/atualiza o usuário gestock_app.
   migrate:
+    logging: *logging
     image: gestock-backend-tools
     build:
       context: ./backend
@@ -52,6 +62,7 @@ services:
     restart: 'no'
 
   backend:
+    logging: *logging
     build:
       context: ./backend
       target: runtime
@@ -60,22 +71,26 @@ services:
       NODE_ENV: production
       PORT: 3333
       # A API usa o usuário SEM BYPASSRLS: o isolamento entre estabelecimentos vale sempre.
-      DATABASE_URL: postgresql://gestock_app:${APP_DB_PASSWORD}@db:5432/gestock
+      # connection_limit: tamanho do pool (o padrão do Prisma, 2×CPUs+1, dá só 3 num servidor de 1 CPU)
+      DATABASE_URL: postgresql://gestock_app:${APP_DB_PASSWORD}@db:5432/gestock?connection_limit=10&pool_timeout=10
       DIRECT_URL: *owner-db-url
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?defina JWT_ACCESS_SECRET no .env}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
       REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-7}
-      CORS_ORIGIN: http://localhost:${FRONTEND_PORT:-8080}
+      # Endereço público do site (em produção: https://seu-dominio). Front e API ficam na mesma origem.
+      CORS_ORIGIN: ${PUBLIC_URL:-http://localhost:${FRONTEND_PORT:-8080}}
       COOKIE_SAMESITE: strict
       # Atrás do nginx do front: o rate limit precisa do IP real do cliente.
-      TRUST_PROXY: 1
+      TRUST_PROXY: ${TRUST_PROXY:-1}
     ports:
-      - '${API_PORT:-3333}:3333'
+      # Só nesta máquina: de fora, a API é acessada pelo nginx do front (/api).
+      - '127.0.0.1:${API_PORT:-3333}:3333'
     depends_on:
       migrate:
         condition: service_completed_successfully
 
   frontend:
+    logging: *logging
     build:
       context: ./frontend
     restart: unless-stopped
@@ -87,6 +102,7 @@ services:
 
   # Opcional: açaiteria de demonstração (login demo@gestock.app / gestock123).
   seed:
+    logging: *logging
     image: gestock-backend-tools
     build:
       context: ./backend

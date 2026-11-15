@@ -330,7 +330,11 @@ export class SaleService {
       }
     }
 
-    const consumption = mergeConsumption(planned);
+    // Ordenado por ingrediente: o trigger de saldo trava as linhas nessa ordem, igual em
+    // todas as transações (evita deadlock entre vendas simultâneas).
+    const consumption = mergeConsumption(planned).sort((a, b) =>
+      a.ingredientId.localeCompare(b.ingredientId),
+    );
     if (consumption.length) {
       await this.movements.createMany(
         tx,

@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { ChevronDown, Download, FileSpreadsheet } from 'lucide-react';
+import { ChevronDown, Download, FileSpreadsheet, HelpCircle, Scale, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { toast } from 'sonner';
@@ -102,18 +102,24 @@ function LossesTab() {
           <>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
               <Stat
+                icon={Trash2}
+                color="rose"
                 label="Perdido (vencimento, descarte)"
                 value={formatMoney(data.totals.lostValue)}
                 tone={toNumber(data.totals.lostValue) > 0 ? 'danger' : 'default'}
                 hint={`${data.totals.ingredientsWithLoss} ingrediente(s) com perda`}
               />
               <Stat
+                icon={Scale}
+                color="amber"
                 label="Ajustes de inventário"
                 value={formatMoney(data.totals.adjustedValue)}
                 tone={toNumber(data.totals.adjustedValue) < 0 ? 'warning' : 'default'}
                 hint="Negativo = sumiu mais do que as vendas baixaram"
               />
               <Stat
+                icon={HelpCircle}
+                color="slate"
                 label="Sem custo cadastrado"
                 value={data.totals.ingredientsWithoutCost}
                 hint="Esses ficam fora dos valores em R$"

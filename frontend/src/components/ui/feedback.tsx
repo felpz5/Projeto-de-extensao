@@ -1,8 +1,11 @@
-import { AlertCircle, Inbox, Loader2 } from 'lucide-react';
+import { AlertCircle, Inbox, Loader2, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useLocation } from 'react-router';
+import { currentNavItem, navColor } from '@/components/layout/nav';
 import { errorMessage } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Button } from './button';
+import { IconChip } from './card';
 
 export function Spinner({ className, label = 'Carregando…' }: { className?: string; label?: string }) {
   return (
@@ -77,22 +80,36 @@ export function Notice({
   );
 }
 
+/**
+ * Título da página. O ícone e a cor vêm sozinhos do item do menu da rota atual (cada assunto
+ * tem a sua cor). No celular os botões de ação ocupam a largura (fáceis de tocar).
+ */
 export function PageHeader({
   title,
   description,
   actions,
+  icon,
 }: {
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
+  icon?: LucideIcon;
 }) {
+  const { pathname } = useLocation();
+  const item = currentNavItem(pathname);
+  const Icon = icon ?? item?.icon;
   return (
-    <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <h1 className="text-2xl font-bold">{title}</h1>
-        {description && <p className="mt-1 text-sm text-muted">{description}</p>}
+    <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+        {Icon && <IconChip icon={Icon} color={navColor(pathname)} size="lg" className="hidden sm:flex" />}
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1>
+          {description && <p className="mt-1 max-w-2xl text-sm text-muted">{description}</p>}
+        </div>
       </div>
-      {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+      {actions && (
+        <div className="flex flex-wrap gap-2 [&>*]:flex-1 sm:[&>*]:flex-none">{actions}</div>
+      )}
     </header>
   );
 }

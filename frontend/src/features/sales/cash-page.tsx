@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Ban, Pencil, Plus, Printer } from 'lucide-react';
+import { Ban, HelpCircle, Pencil, Plus, Printer, Receipt, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { PAYMENT_ICON } from '@/components/payment';
@@ -99,15 +99,19 @@ export function CashPage() {
         data && (
           <div className="flex flex-col gap-4">
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <Stat label="Total recebido" value={formatMoney(data.revenue)} />
-              <Stat label="Vendas" value={formatNumber(data.orders, 0)} hint={`Ticket médio ${formatMoney(data.averageTicket)}`} />
+              <Stat icon={Wallet} color="sky" label="Total recebido" value={formatMoney(data.revenue)} />
+              <Stat icon={Receipt} color="violet" label="Vendas" value={formatNumber(data.orders, 0)} hint={`Ticket médio ${formatMoney(data.averageTicket)}`} />
               <Stat
+                icon={Ban}
+                color="amber"
                 label="Canceladas"
                 value={formatNumber(data.canceled.orders, 0)}
                 tone={data.canceled.orders ? 'warning' : 'default'}
                 hint={data.canceled.orders ? `${formatMoney(data.canceled.amount)} (fora do total)` : undefined}
               />
               <Stat
+                icon={HelpCircle}
+                color="slate"
                 label="Sem forma de pagamento"
                 value={formatMoney(data.byPayment.find((p) => !p.method)?.revenue ?? 0)}
                 hint="Vendas antigas, sem o campo"

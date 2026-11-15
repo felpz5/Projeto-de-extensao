@@ -13,6 +13,15 @@ const PRISMA_ERRORS: Record<string, [number, string]> = {
   P2020: [400, 'Valor fora do limite permitido'],
 };
 
+/** Pool cheio ou banco inacessível: problemas que passam sozinhos (não são bugs). */
+function isTransient(error: Error) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    // P2028 = não conseguiu iniciar a transação a tempo · P2024 = tempo esgotado no pool
+    return ['P2028', 'P2024', 'P1001', 'P1002', 'P1017'].includes(error.code);
+  }
+  return error instanceof Prisma.PrismaClientInitializationError;
+}
+
 /** Erros do body-parser do Express (JSON malformado, corpo grande demais). */
 interface HttpParserError extends Error {
   status?: number;
@@ -41,6 +50,20 @@ export function errorHandlerMiddleware(
   if (error instanceof Prisma.PrismaClientKnownRequestError && PRISMA_ERRORS[error.code]) {
     const [status, message] = PRISMA_ERRORS[error.code];
     return res.status(status).json({ message });
+  }
+
+  // Sobrecarga passageira: todas as conexões do pool ocupadas (P2028: a transação nem começou,
+  // nada foi gravado) ou banco momentaneamente fora do ar. 503 + Retry-After diz ao cliente que
+  // pode tentar de novo — diferente de um 500 (bug).
+  if (isTransient(error)) {
+    logger.warn('Servidor ocupado ou banco indisponível', { message: error.message });
+    res.setHeader('Retry-After', '2');
+    return res
+      .status(503)
+      .json({
+        message: 'O servidor está ocupado agora. Tente de novo em alguns segundos.',
+        code: 'BUSY',
+      });
   }
 
   const parserError = error as HttpParserError;

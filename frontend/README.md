@@ -22,6 +22,18 @@ exemplo, rode o seed e entre com `demo@gestock.app` / `gestock123`.
 > No Git Bash do Windows, o `npm test` pode falhar com `Cannot read properties of undefined (reading 'config')`
 > por causa da letra do drive em minúscula (`c:/`). Rode pelo PowerShell/CMD ou pelo terminal do VS Code.
 
+## Tamanhos de tela
+
+| Largura | Navegação |
+|---|---|
+| celular (< 768px) | barra superior com **menu hambúrguer** (gaveta lateral) + barra inferior: Início, Caixa, **Vender** (botão central), Estoque, Menu |
+| tablet (768–1023px) | trilho lateral só com ícones; o hambúrguer abre o menu completo |
+| computador (≥ 1024px) | menu lateral completo; o hambúrguer recolhe/expande (a escolha fica salva no aparelho) |
+
+No celular as listas (estoque, vendas, movimentações, ingredientes) viram **cartões** e as janelas
+abrem de baixo ("folha"). Instalado como app, respeita o entalhe e a barra de gestos
+(`env(safe-area-inset-*)`). Cada assunto tem uma cor: Operação azul, Estoque verde, Gestão violeta.
+
 ## Telas
 
 | Rota | Tela | Quem vê |
@@ -55,7 +67,9 @@ src/
 ├── app/router.tsx      rotas; cada tela é carregada sob demanda
 ├── components/
 │   ├── ui/             botão, formulário, cartão, selo, diálogo, tabela, estados de carregamento/erro
-│   ├── layout/         menu lateral (computador), barra inferior (celular), troca de estabelecimento
+│   ├── layout/         estrutura responsiva: menu lateral (computador, recolhível), trilho de ícones
+│   │                   (tablet), menu hambúrguer + barra inferior com o botão Vender (celular),
+│   │                   sino de alertas, menu da conta, troca de estabelecimento
 │   └── charts.tsx      gráficos (barra por dia, previsão com faixa, ranking) com alternância para tabela
 ├── features/           uma pasta por domínio: auth, dashboard, sales, inventory, ingredients,
 │                       products, forecast, settings

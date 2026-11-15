@@ -11,6 +11,7 @@ próprias dependências e configuração, e conversam só por HTTP (API REST em 
 | [frontend/](frontend/README.md) | Cliente: React + Vite + Tailwind (painel, vendas, estoque, cadastros, previsão) |
 | [docker-compose.yml](docker-compose.yml) | Sobe banco, back-end e front-end juntos |
 | [PLANEJAMENTO.md](PLANEJAMENTO.md) | Visão, stack, arquitetura, modelo de dados e roadmap |
+| [DEPLOY.md](DEPLOY.md) | Como colocar no ar: servidor, HTTPS, backup, capacidade medida |
 
 ## Rodando tudo com Docker (recomendado)
 

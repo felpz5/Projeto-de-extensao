@@ -65,6 +65,8 @@ export class StockMovementRepository {
   findActiveBySale(tx: Tx, saleId: string) {
     return tx.stockMovement.findMany({
       where: { saleId, reversedAt: null, reversesId: null },
+      // mesma ordem em todo lugar que grava vários saldos: evita deadlock entre transações
+      orderBy: { ingredientId: 'asc' },
     });
   }
 
@@ -111,6 +113,16 @@ export class StockMovementRepository {
     ingredientIds?: string[],
     asOf?: Date,
   ): Promise<Map<string, Prisma.Decimal>> {
+    // Saldo atual: lido da tabela mantida pelo trigger (não soma o histórico inteiro).
+    if (!asOf) {
+      const current = await tx.ingredientBalance.findMany({
+        where: { tenantId, ...(ingredientIds ? { ingredientId: { in: ingredientIds } } : {}) },
+        select: { ingredientId: true, quantity: true },
+      });
+      return new Map(current.map((r) => [r.ingredientId, r.quantity]));
+    }
+    // Saldo numa data passada (contagem retroativa): soma até `asOf`, usando o índice
+    // (tenant_id, ingredient_id, occurred_at).
     const rows = await tx.stockMovement.groupBy({
       by: ['ingredientId'],
       where: {

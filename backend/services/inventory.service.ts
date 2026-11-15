@@ -216,7 +216,10 @@ export class InventoryService {
       const names = new Map(found.map((f) => [f.id, f.name]));
       const results = [];
 
-      for (const item of input.items) {
+      // Grava em ordem de ingrediente: duas transações que tocam os mesmos saldos sempre os
+      // travam na mesma ordem (sem deadlock com vendas simultâneas).
+      const ordered = [...input.items].sort((a, b) => a.ingredientId.localeCompare(b.ingredientId));
+      for (const item of ordered) {
         const previous = balances.get(item.ingredientId) ?? ZERO;
         const counted = new Prisma.Decimal(item.countedQuantity);
         const difference = counted.minus(previous);

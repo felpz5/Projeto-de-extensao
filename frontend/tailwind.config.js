@@ -38,6 +38,26 @@ export default {
           '0%, 100%': { backgroundPosition: '0% 50%' },
           '50%': { backgroundPosition: '100% 50%' },
         },
+        // Transições do app (troca de página, gaveta, menus suspensos).
+        'page-in': {
+          from: { opacity: '0', transform: 'translateY(8px)' },
+          to: { opacity: '1', transform: 'none' },
+        },
+        'drawer-in': {
+          from: { transform: 'translateX(-100%)' },
+          to: { transform: 'none' },
+        },
+        'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
+        'sheet-up': { from: { transform: 'translateY(100%)' }, to: { transform: 'none' } },
+        wiggle: {
+          '0%, 100%': { transform: 'rotate(0)' },
+          '20%, 60%': { transform: 'rotate(-12deg)' },
+          '40%, 80%': { transform: 'rotate(12deg)' },
+        },
+        'pop-in': {
+          from: { opacity: '0', transform: 'translateY(-4px) scale(0.97)' },
+          to: { opacity: '1', transform: 'none' },
+        },
       },
       animation: {
         float: 'float 6s ease-in-out infinite',
@@ -46,6 +66,11 @@ export default {
         marquee: 'marquee 30s linear infinite',
         glow: 'glow 2.4s ease-out infinite',
         shine: 'shine 6s ease-in-out infinite',
+        'page-in': 'page-in 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+        'drawer-in': 'drawer-in 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+        'fade-in': 'fade-in 0.2s ease-out',
+        'pop-in': 'pop-in 0.18s ease-out',
+        'sheet-up': 'sheet-up 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
       },
     },
   },

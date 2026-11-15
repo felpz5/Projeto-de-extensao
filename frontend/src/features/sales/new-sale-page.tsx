@@ -365,7 +365,7 @@ function SaleForm({
           </Field>
         </Card>
 
-        <div className="sticky bottom-20 z-10 lg:bottom-4">
+        <div className="sticky bottom-[calc(6rem+env(safe-area-inset-bottom))] z-10 md:bottom-4">
           <Button type="submit" size="lg" className="w-full shadow-lg shadow-navy-950" loading={mutation.isPending}>
             {correcting ? 'Salvar correção' : 'Registrar venda'}
             {(typedTotal ?? computed) !== null && ` · ${formatMoney(typedTotal ?? computed ?? 0)}`}

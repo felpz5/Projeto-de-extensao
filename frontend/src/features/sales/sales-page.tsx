@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Download, Plus } from 'lucide-react';
+import { BadgeDollarSign, Download, Percent, Plus, TrendingUp, Wallet } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
@@ -144,14 +144,18 @@ export function SalesPage() {
 
       {s && (
         <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Stat label="Faturamento" value={formatMoney(s.revenue)} hint={`${formatNumber(s.orders, 0)} pedidos`} />
+          <Stat icon={TrendingUp} color="sky" label="Faturamento" value={formatMoney(s.revenue)} hint={`${formatNumber(s.orders, 0)} pedidos`} />
           <Stat
+            icon={Percent}
+            color="emerald"
             label="Lucro bruto (estimado)"
             value={formatMoney(s.grossProfit)}
             hint={`Margem ${formatPct(margin)} · custo ${formatMoney(s.estimatedCost)}`}
           />
-          <Stat label="Ticket médio" value={formatMoney(s.averageTicket)} />
+          <Stat icon={BadgeDollarSign} color="violet" label="Ticket médio" value={formatMoney(s.averageTicket)} />
           <Stat
+            icon={Wallet}
+            color="sky"
             label="Por pagamento"
             value={
               <span className="flex flex-col gap-0.5 text-sm font-semibold">
@@ -189,6 +193,42 @@ export function SalesPage() {
               {formatNumber(list.data.total, 0)} venda(s) · {status === 'CANCELED' ? 'valor cancelado' : 'total'}{' '}
               {formatMoney(list.data.totalAmount)}
             </p>
+            {/* Celular: cartões tocáveis */}
+            <ul className="flex flex-col gap-2 md:hidden">
+              {list.data.items.map((sale) => (
+                <li key={sale.id}>
+                  <button
+                    type="button"
+                    onClick={() => setOpenId(sale.id)}
+                    className={cn(
+                      'w-full rounded-xl border border-navy-800 bg-navy-950/40 p-3 text-left transition-colors active:bg-navy-800',
+                      sale.status === 'CANCELED' && 'opacity-60',
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">
+                          {sale.items.map((i) => `${formatNumber(i.quantity, 3)}× ${i.product.name}`).join(', ')}
+                        </span>
+                        <span className="text-xs text-muted">
+                          {formatDateTime(sale.soldAt)} · {CHANNEL_LABEL[sale.channel]}
+                          {sale.createdByName && ` · ${sale.createdByName.split(' ')[0]}`}
+                        </span>
+                      </span>
+                      <span className={cn('tabular shrink-0 text-base font-bold', sale.status === 'CANCELED' && 'line-through')}>
+                        {formatMoney(sale.totalAmount)}
+                      </span>
+                    </div>
+                    <span className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <PaymentBadge method={sale.paymentMethod} />
+                      <SaleStatusBadge sale={sale} />
+                      {sale.totalWeightG && <Badge>{formatQty(sale.totalWeightG, 'G')}</Badge>}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="hidden md:block">
             <Table>
               <thead>
                 <tr>
@@ -232,6 +272,7 @@ export function SalesPage() {
                 ))}
               </tbody>
             </Table>
+            </div>
             <Pagination skip={skip} take={TAKE} total={list.data.total} onChange={setSkip} />
           </>
         )}

@@ -12,6 +12,7 @@ import { Field, Input, Select, Textarea } from '@/components/ui/form';
 import { Table, Td, Th, Tr } from '@/components/ui/table';
 import { useAuth } from '@/features/auth/auth-context';
 import { api, errorMessage } from '@/lib/api';
+import { MovementLine } from './movement-row';
 import { formatDateTime, formatMoney, formatSignedQty, MOVEMENT_LABEL, toNumber } from '@/lib/format';
 import { qk, useIngredients, useInvalidateStock } from '@/lib/queries';
 import type { Movement, MovementType, Page } from '@/lib/types';
@@ -94,6 +95,30 @@ export function MovementsPage() {
           <EmptyState title="Nenhuma movimentação encontrada" />
         ) : (
           <>
+            {/* Celular: linha compacta + estorno */}
+            <ul className="divide-y divide-navy-800 md:hidden">
+              {query.data.items.map((m) => {
+                const canReverse = isManager && m.type !== 'SALE_CONSUMPTION' && !m.reversedAt && !m.reversesId;
+                return (
+                  <li key={m.id} className={cn(m.reversedAt && 'opacity-60')}>
+                    <ul>
+                      <MovementLine m={m} />
+                    </ul>
+                    {(m.note || canReverse) && (
+                      <div className="-mt-1 flex items-center justify-between gap-2 pb-2.5">
+                        <p className="min-w-0 truncate text-xs text-muted">{m.note}</p>
+                        {canReverse && (
+                          <Button variant="ghost" size="sm" onClick={() => setReversing(m)}>
+                            <Undo2 aria-hidden /> Estornar
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="hidden md:block">
             <Table>
               <thead>
                 <tr>
@@ -152,6 +177,7 @@ export function MovementsPage() {
                 })}
               </tbody>
             </Table>
+            </div>
             <Pagination skip={skip} take={TAKE} total={query.data.total} onChange={setSkip} />
           </>
         )}
