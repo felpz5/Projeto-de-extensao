@@ -46,7 +46,7 @@ services:
       # TROQUE pelo endereço real da API se o Render der outro nome (ex.: gestock-api-x1y2)
       - type: rewrite
         source: /api/*
-        destination: https://gestock-api.onrender.com/api/*
+        destination: https://gestock-api-tdff.onrender.com/api/*
       - type: rewrite
         source: /*
         destination: /index.html
