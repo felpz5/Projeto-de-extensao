@@ -9,8 +9,16 @@ BEGIN
     CREATE ROLE gestock_app LOGIN PASSWORD 'TROQUE-ESTA-SENHA'
       NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
   ELSE
-    ALTER ROLE gestock_app LOGIN PASSWORD 'TROQUE-ESTA-SENHA'
-      NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+    -- Só mexe nos atributos que estiverem errados: em bancos gerenciados (Neon, Supabase) o dono
+    -- não é superusuário e o Postgres recusa até um "NOSUPERUSER" que não muda nada.
+    ALTER ROLE gestock_app LOGIN PASSWORD 'TROQUE-ESTA-SENHA';
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'gestock_app' AND rolsuper) THEN
+      ALTER ROLE gestock_app NOSUPERUSER;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'gestock_app'
+               AND (rolbypassrls OR rolcreatedb OR rolcreaterole)) THEN
+      ALTER ROLE gestock_app NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+    END IF;
   END IF;
 END $$;
 

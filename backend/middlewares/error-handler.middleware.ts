@@ -58,12 +58,10 @@ export function errorHandlerMiddleware(
   if (isTransient(error)) {
     logger.warn('Servidor ocupado ou banco indisponível', { message: error.message });
     res.setHeader('Retry-After', '2');
-    return res
-      .status(503)
-      .json({
-        message: 'O servidor está ocupado agora. Tente de novo em alguns segundos.',
-        code: 'BUSY',
-      });
+    return res.status(503).json({
+      message: 'O servidor está ocupado agora. Tente de novo em alguns segundos.',
+      code: 'BUSY',
+    });
   }
 
   const parserError = error as HttpParserError;
