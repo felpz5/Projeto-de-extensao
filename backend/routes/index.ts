@@ -14,6 +14,7 @@ import { tenantRoutes } from '@/routes/tenant.routes';
 export const routes = Router();
 
 routes.get('/health', healthController.check);
+routes.get('/health/live', healthController.live);
 
 routes.use('/auth', authRoutes);
 routes.use('/tenant', tenantRoutes);

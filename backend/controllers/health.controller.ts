@@ -12,6 +12,14 @@ export class HealthController {
       return res.status(503).json({ status: 'error', database: 'unreachable', time });
     }
   }
+
+  /**
+   * Só a API, sem consultar o banco. É o health check do Render: ele chama a cada poucos
+   * segundos, e consultar o banco manteria o Neon sempre acordado (gastando as horas grátis).
+   */
+  live(_req: Request, res: Response) {
+    return res.json({ status: 'ok' });
+  }
 }
 
 export const healthController = new HealthController();

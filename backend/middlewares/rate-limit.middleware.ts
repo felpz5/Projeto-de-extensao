@@ -12,7 +12,8 @@ function limiter(windowMs: number, limit: number, skipPath?: string) {
     limit,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
-    skip: (req) => env.NODE_ENV === 'test' || (skipPath !== undefined && req.path === skipPath),
+    skip: (req) =>
+      env.NODE_ENV === 'test' || (skipPath !== undefined && req.path.startsWith(skipPath)),
     handler: (_req, res) => {
       res.status(429).json({
         message: `Muitas requisições. Aguarde ${minutes} ${minutes === 1 ? 'minuto' : 'minutos'} e tente novamente.`,

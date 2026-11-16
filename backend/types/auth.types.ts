@@ -4,7 +4,6 @@ import type {
   changePasswordSchema,
   loginSchema,
   registerSchema,
-  switchTenantSchema,
   updateProfileSchema,
 } from '@/validations/auth.validation';
 
@@ -17,7 +16,6 @@ export interface AuthContext {
 
 export type RegisterDTO = z.infer<typeof registerSchema>;
 export type LoginDTO = z.infer<typeof loginSchema>;
-export type SwitchTenantDTO = z.infer<typeof switchTenantSchema>;
 export type ChangePasswordDTO = z.infer<typeof changePasswordSchema>;
 export type UpdateProfileDTO = z.infer<typeof updateProfileSchema>;
 
