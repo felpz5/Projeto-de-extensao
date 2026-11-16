@@ -33,6 +33,10 @@ export const qk = {
   dashboard: (params: object) => ['dashboard', params] as const,
   productForecast: (horizon: number) => ['forecast', 'products', horizon] as const,
   reorder: (coverage: number) => ['forecast', 'reorder', coverage] as const,
+  productForecastDetail: (id: string, horizon: number, lookback: number) =>
+    ['forecast', 'product', id, horizon, lookback] as const,
+  forecastAccuracy: (lookback: number) => ['forecast', 'accuracy', lookback] as const,
+  saleImports: ['sales', 'imports'] as const,
   cash: (params: object) => ['cash', params] as const,
   stockReport: (params: object) => ['inventory', 'report', params] as const,
   counts: (params: object) => ['inventory', 'counts', params] as const,

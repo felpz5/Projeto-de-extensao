@@ -1,8 +1,10 @@
 import type {
+  AccuracyLabel,
   BaseUnit,
   Channel,
-  Confidence,
   Decimal,
+  HistoryLevel,
+  ModelId,
   MovementType,
   PaymentMethod,
   QuantitySource,
@@ -135,11 +137,30 @@ export const SOURCE_LABEL: Record<QuantitySource, string> = {
   UNKNOWN: 'Quantidade desconhecida',
 };
 
-export const CONFIDENCE_LABEL: Record<Confidence, string> = {
-  LOW: 'Confiança baixa',
-  MEDIUM: 'Confiança média',
-  HIGH: 'Confiança alta',
+/** Rótulo da precisão MEDIDA no backtesting (WAPE ≤ 25% / ≤ 50% / acima — convenção da equipe). */
+export const ACCURACY_LABEL: Record<AccuracyLabel, string> = {
+  GOOD: 'Precisão boa',
+  MODERATE: 'Precisão moderada',
+  POOR: 'Precisão baixa',
 };
+
+export const HISTORY_LEVEL_LABEL: Record<HistoryLevel, string> = {
+  SHORT: 'Pouco histórico',
+  WEEKLY: 'Com padrão semanal',
+};
+
+export const MODEL_SHORT_LABEL: Record<ModelId, string> = {
+  gestock: 'Gestock',
+  naive: 'Ingênuo',
+  'seasonal-naive': 'Ingênuo sazonal',
+  'holt-winters': 'Holt-Winters',
+};
+
+/** Fração (0,123) → "12,3%". */
+export const formatPctFraction = (v: number | null | undefined, digits = 1) =>
+  v === null || v === undefined
+    ? '—'
+    : `${(v * 100).toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits })}%`;
 
 export const URGENCY_LABEL: Record<ReorderUrgency, string> = {
   OUT_OF_STOCK: 'Sem estoque',

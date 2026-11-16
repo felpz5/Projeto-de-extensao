@@ -1,5 +1,5 @@
 /**
- * Dados de demonstração: uma açaiteria com catálogo, estoque e ~60 dias de vendas.
+ * Dados de demonstração (SIMULADOS): uma açaiteria com catálogo, estoque e ~120 dias de vendas.
  * Uso: npm run db:seed   (dentro de backend/)
  * Login: demo@gestock.app / gestock123  (troque em produção — este seed é só para desenvolvimento)
  */
@@ -12,7 +12,8 @@ import type { ProductInfo } from '@/types/sale.types';
 // Lotes grandes: o limite padrão do Prisma (5 s por transação) estoura em máquinas mais lentas.
 const prisma = new PrismaClient({ transactionOptions: { maxWait: 10_000, timeout: 60_000 } });
 const DAY = 24 * 60 * 60_000;
-const DAYS = 60;
+// 120 dias: o suficiente para o backtesting avaliar horizontes de 7, 14 e 30 dias.
+const DAYS = Number(process.env.SEED_DAYS ?? 120);
 const EMAIL = 'demo@gestock.app';
 
 /** Gerador pseudoaleatório com semente fixa: o seed gera sempre os mesmos dados. */
@@ -51,6 +52,8 @@ async function main() {
         name: 'Açaiteria Demo',
         slug: `acaiteria-demo-${tenantId.slice(0, 6)}`,
         segment: 'acaiteria',
+        // a interface mostra "Ambiente de demonstração — dados simulados"
+        isDemo: true,
       },
     });
     await tx.membership.create({ data: { tenantId, userId, role: 'OWNER' } });
@@ -136,7 +139,7 @@ async function main() {
       ],
     });
 
-    // Estoque inicial, 60 dias atrás.
+    // Estoque inicial, no primeiro dia do histórico simulado.
     const start = new Date(Date.now() - DAYS * DAY);
     const initial: [string, number][] = [
       [i.acai, 60000],

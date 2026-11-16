@@ -36,3 +36,6 @@ REVOKE ALL ON TABLE _prisma_migrations FROM gestock_app;
 
 -- Auditoria só cresce: a API pode registrar, mas não alterar nem apagar o histórico.
 REVOKE UPDATE, DELETE ON TABLE audit_logs FROM gestock_app;
+
+-- Lotes de importação: a API registra e desfaz (undone_at), mas não apaga o registro.
+REVOKE DELETE ON TABLE sale_imports FROM gestock_app;

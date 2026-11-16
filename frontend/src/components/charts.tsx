@@ -6,6 +6,7 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -182,6 +183,90 @@ export function ForecastChart({
         />
       </ComposedChart>
     </ResponsiveContainer>
+  );
+}
+
+const OBSERVED = '#5B7BB0';
+
+/**
+ * Histórico + previsão no mesmo eixo: barras = o que aconteceu (dados reais registrados),
+ * linha tracejada + faixa = estimativa. Uma linha vertical marca onde começa a previsão.
+ */
+export function HistoryForecastChart({
+  history,
+  forecast,
+  formatX,
+  formatY,
+}: {
+  history: { date: string; value: number | null }[];
+  forecast: { date: string; expected: number; low: number; high: number }[];
+  formatX: (v: string) => string;
+  formatY: (v: number) => string;
+}) {
+  const rows = [
+    ...history.map((h) => ({ date: h.date, observed: h.value, missing: h.value === null })),
+    ...forecast.map((f) => ({
+      date: f.date,
+      expected: f.expected,
+      low: f.low,
+      high: f.high,
+      band: [f.low, f.high] as [number, number],
+    })),
+  ];
+  const boundary = forecast[0]?.date;
+  return (
+    <div className="flex h-full flex-col">
+      <div className="min-h-0 flex-1">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }} barCategoryGap={1}>
+            <CartesianGrid vertical={false} stroke={GRID} />
+            <XAxis dataKey="date" {...axisProps} tickFormatter={formatX} minTickGap={24} />
+            <YAxis {...axisProps} tickFormatter={formatY} width={56} />
+            <Tooltip
+              cursor={{ fill: 'rgba(56,189,248,0.08)' }}
+              content={
+                <ChartTooltip
+                  formatLabel={formatX}
+                  rows={(d) =>
+                    d.expected !== undefined
+                      ? [
+                          { label: 'Previsto', value: formatY(d.expected as number) },
+                          { label: 'Faixa', value: `${formatY(d.low as number)} – ${formatY(d.high as number)}` },
+                        ]
+                      : d.missing
+                        ? [{ label: 'Real', value: 'sem observação (sem estoque)' }]
+                        : [{ label: 'Real', value: formatY(d.observed as number) }]
+                  }
+                />
+              }
+            />
+            <Bar dataKey="observed" fill={OBSERVED} radius={[3, 3, 0, 0]} maxBarSize={14} isAnimationActive={false} />
+            <Area dataKey="band" stroke="none" fill={ACCENT} fillOpacity={0.18} isAnimationActive={false} />
+            <Line
+              dataKey="expected"
+              stroke={ACCENT}
+              strokeWidth={2}
+              strokeDasharray="5 4"
+              dot={false}
+              activeDot={{ r: 4 }}
+              isAnimationActive={false}
+            />
+            {boundary && <ReferenceLine x={boundary} stroke={AXIS} strokeDasharray="3 3" />}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 pl-2 text-xs text-muted" aria-hidden>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block size-2.5 rounded-sm" style={{ background: OBSERVED }} /> Real (registrado)
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-0.5 w-4 border-t-2 border-dashed" style={{ borderColor: ACCENT }} /> Previsto
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-block size-2.5 rounded-sm" style={{ background: ACCENT, opacity: 0.25 }} /> Faixa
+        </span>
+      </p>
+    </div>
   );
 }
 

@@ -217,35 +217,40 @@ Convenções: `id uuid`, `created_at`, `updated_at`; quantidades em `numeric(14,
 
 Objetivo da v1: **simples, explicável e honesta.** Nada de "caixa-preta". Roda dentro da API (TypeScript), sob demanda e com cache diário.
 
+> **Atualizado em 16/11/2026** (projeto de extensão, vertente 7). Metodologia completa, fórmulas e
+> validação: [docs/extensao-2026-2/](docs/extensao-2026-2/README.md).
+
 ### 7.1 Requisitos mínimos de dados
 | Histórico disponível | O que o sistema mostra |
 |---|---|
-| < 7 dias | "Histórico insuficiente para previsão." Só mostra totais. |
-| 7–27 dias | Previsão por **média móvel** — confiança **baixa**. |
-| ≥ 28 dias | Média móvel ponderada **+ fator por dia da semana** — confiança **média**. |
-| ≥ 90 dias e baixa variação | Confiança **alta** (avaliar suavização exponencial / Holt-Winters na fase 2). |
+| < 7 dias observados | "Histórico insuficiente para previsão." |
+| 7–27 dias | Média móvel ponderada (sem padrão semanal) — "pouco histórico". |
+| ≥ 28 dias | Média móvel ponderada **+ fator por dia da semana**. |
+
+A confiabilidade **não** é deduzida da quantidade de dias: ela vem do erro medido no backtesting
+(WAPE, comparado com referências simples).
 
 ### 7.2 Cálculo
-1. Série diária de demanda por **produto** (vendas) e por **ingrediente** (consumo registrado/estimado).
-2. Média dos últimos N dias, com pesos maiores para dias recentes.
-3. Fator de dia da semana = média do dia da semana ÷ média geral (açaí vende mais no fim de semana).
-4. Previsão para os próximos 7 dias = média × fator de cada dia.
-5. Faixa de incerteza = previsão ± desvio padrão histórico (mostrar como intervalo, nunca número exato).
+1. Série diária por produto, ingrediente e loja; dia sem venda = 0; dia sem estoque = sem observação.
+2. Nível = média ponderada dos últimos 28 dias (dessazonalizada), com dias atípicos limitados (Hampel).
+3. Fator de dia da semana = média do dia ÷ média geral (últimos 84 dias).
+4. Previsão = nível × fator; faixa = ± desvio dos resíduos (cobertura medida no backtesting).
 
 ### 7.3 Recomendação de reposição (por ingrediente)
 ```
-cobertura          = lead_time_days + dias_de_cobertura_desejados (padrão 7)
-demanda_prevista   = soma da previsão diária no período de cobertura
-estoque_seguranca  = z × desvio_padrão_diário × √lead_time      (z ≈ 1,65)
+P                  = lead_time_days + dias até a próxima compra (padrão 7)
+demanda_prevista   = soma da previsão diária nos P dias
+estoque_seguranca  = z × max(σ do modelo, erro medido) × √P        (z ≈ 1,65)
 sugestao_compra    = max(0, demanda_prevista + estoque_seguranca − saldo_atual)
-dias_ate_acabar    = saldo_atual ÷ média_diária
+dias_ate_acabar    = soma acumulada da previsão diária até cobrir o saldo
 ```
-Cada sugestão exibe: quantidade, nível de confiança, quantos dias de histórico foram usados e se a base contém consumo estimado.
 
-### 7.4 Fase 2 (se der tempo)
-- Feriados e clima (açaí × temperatura).
-- Medir erro das previsões (MAPE) com `forecast_snapshots`.
-- Microserviço Python (statsmodels/Prophet) se o volume justificar.
+### 7.4 Validação (feito) e próximos passos
+- ✅ Backtesting com janela crescente; MAE, RMSE, WAPE; referências ingênua e ingênua sazonal;
+  Holt-Winters como alternativa comparada.
+- ✅ Importação de histórico (CSV) para alimentar a previsão desde o início.
+- Próximos: feriados e clima; guardar as previsões feitas para medir o erro no uso real;
+  serviço em Python só se o volume de dados justificar.
 
 ---
 
@@ -300,7 +305,7 @@ docs: atualizar modelo de dados
 | **4 — Vendas** | Venda presencial (valor + peso), venda online (ingredientes selecionados), baixa automática/estimada, histórico e filtros | 7, 8 | ✅ | ✅ |
 | **5 — Dashboard** | Total de vendas, nº de pedidos, mais vendidos, estoque baixo, movimentações recentes | 9 | ✅ | ✅ |
 | **6 — Previsão** | Previsão de demanda, sugestão de reposição, indicadores de confiança | 11 | ✅ | ✅ |
-| **7 — Validação** | Seed com dados realistas, uso real na açaiteria, ajustes, deploy, documentação final | — | 🟨 seed pronto | 🟨 telas prontas, falta uso real |
+| **7 — Validação** | Backtesting e métricas, importação de histórico, uso real na açaiteria, documentação acadêmica | — | ✅ backtesting e importação | 🟨 falta uso real com o parceiro |
 
 Detalhes: [backend/README.md](backend/README.md) (endpoints, segurança) e [frontend/README.md](frontend/README.md) (telas, permissões).
 

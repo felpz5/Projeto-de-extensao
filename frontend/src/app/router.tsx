@@ -78,6 +78,10 @@ export const router = createBrowserRouter([
             children: [
               { path: 'vendas', element: page(() => import('@/features/sales/sales-page'), 'SalesPage') },
               {
+                path: 'vendas/importar',
+                element: page(() => import('@/features/sales/import-page'), 'ImportPage'),
+              },
+              {
                 path: 'estoque/contagem',
                 element: page(() => import('@/features/inventory/count-page'), 'CountPage'),
               },

@@ -125,6 +125,14 @@ export function AppLayout() {
         key={location.pathname}
         className="mx-auto w-full max-w-7xl px-4 pb-32 pt-5 motion-safe:animate-page-in sm:px-6 md:pb-12 lg:px-8 lg:pt-7"
       >
+        {session?.tenant.isDemo && (
+          <p
+            role="note"
+            className="mb-4 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-center text-sm font-semibold text-warning"
+          >
+            Ambiente de demonstração — dados simulados.
+          </p>
+        )}
         {tenant.isPending ? <Spinner /> : <Outlet />}
       </main>
 

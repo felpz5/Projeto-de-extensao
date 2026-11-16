@@ -10,7 +10,11 @@ export const pagination = {
 
 // ---------- Números (limites = tamanho das colunas no banco) ----------
 
-const number = z.number({ invalid_type_error: 'Deve ser um número' }).finite('Número inválido');
+/** Mensagem só para tipo errado; campo ausente continua com a mensagem padrão ("obrigatório"). */
+const wrongType = (message: string) => (issue: { input?: unknown }) =>
+  issue.input === undefined ? undefined : message;
+
+const number = z.number({ error: wrongType('Deve ser um número') }).finite('Número inválido');
 
 /** Quantidade de estoque/receita: numeric(14,3). */
 export const MAX_QUANTITY = 99_999_999_999;
@@ -53,7 +57,7 @@ const FUTURE_TOLERANCE_MS = 5 * 60_000;
 
 /** Data e hora ISO 8601 com fuso (ex.: 2026-11-12T10:00:00-03:00 ou ...Z). Não aceita null nem número. */
 export const timestamp = z
-  .string({ invalid_type_error: 'Data inválida' })
+  .string({ error: wrongType('Data inválida') })
   .datetime({
     offset: true,
     message: 'Data inválida: use ISO 8601 com fuso (ex.: 2026-11-12T10:00:00-03:00)',

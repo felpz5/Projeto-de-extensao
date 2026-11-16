@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { BadgeDollarSign, Download, Percent, Plus, TrendingUp, Wallet } from 'lucide-react';
+import { BadgeDollarSign, Download, FileUp, Percent, Plus, TrendingUp, Wallet } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
@@ -101,7 +101,9 @@ export function SalesPage() {
   };
 
   const s = summary.data;
-  const margin = s && toNumber(s.revenue) > 0 ? (toNumber(s.grossProfit) / toNumber(s.revenue)) * 100 : null;
+  // margem só sobre as vendas com custo registrado (as importadas do histórico não têm)
+  const costed = s ? toNumber(s.costedRevenue ?? s.revenue) : 0;
+  const margin = s && costed > 0 ? (toNumber(s.grossProfit) / costed) * 100 : null;
 
   return (
     <>
@@ -113,6 +115,9 @@ export function SalesPage() {
             <Button variant="secondary" onClick={exportCsv} loading={exporting}>
               <Download aria-hidden /> Exportar
             </Button>
+            <Link to="/vendas/importar" className={buttonVariants({ variant: 'secondary' })}>
+              <FileUp aria-hidden /> Importar histórico
+            </Link>
             <Link to="/vender" className={buttonVariants()}>
               <Plus aria-hidden /> Nova venda
             </Link>
@@ -150,7 +155,7 @@ export function SalesPage() {
             color="emerald"
             label="Lucro bruto (estimado)"
             value={formatMoney(s.grossProfit)}
-            hint={`Margem ${formatPct(margin)} · custo ${formatMoney(s.estimatedCost)}`}
+            hint={`Margem ${formatPct(margin)} · custo ${formatMoney(s.estimatedCost)}${s.importedOrders ? ` · sem as ${s.importedOrders} vendas importadas` : ''}`}
           />
           <Stat icon={BadgeDollarSign} color="violet" label="Ticket médio" value={formatMoney(s.averageTicket)} />
           <Stat
@@ -222,6 +227,7 @@ export function SalesPage() {
                     <span className="mt-2 flex flex-wrap items-center gap-1.5">
                       <PaymentBadge method={sale.paymentMethod} />
                       <SaleStatusBadge sale={sale} />
+                      {sale.source === 'IMPORT' && <Badge title="Importada do histórico (não baixou estoque)">Importada</Badge>}
                       {sale.totalWeightG && <Badge>{formatQty(sale.totalWeightG, 'G')}</Badge>}
                     </span>
                   </button>
@@ -253,6 +259,7 @@ export function SalesPage() {
                       <p className="flex items-center gap-1.5 text-xs text-muted">
                         {CHANNEL_LABEL[sale.channel]}
                         {sale.createdByName && ` · ${sale.createdByName.split(' ')[0]}`}
+                        {sale.source === 'IMPORT' && <Badge title="Importada do histórico (não baixou estoque)">Importada</Badge>}
                       </p>
                     </Td>
                     <Td className="max-w-64">
