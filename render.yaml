@@ -1,0 +1,77 @@
+# Gestock no Render (plano gratuito). Passo a passo em DEPLOY.md → "Render (grátis)".
+# Banco: Neon (o Postgres grátis do Render apaga o banco depois de 30 dias).
+#
+#   gestock-api  API Express (dorme após 15 min sem uso; acorda em ~1 min)
+#   gestock      site React; repassa /api/* para a API (mesmo endereço → cookie e PWA funcionam)
+
+services:
+  - type: web
+    name: gestock-api
+    runtime: node
+    plan: free
+    region: virginia # perto do Neon "AWS US East 1 (N. Virginia)"
+    rootDir: backend
+    # --include=dev: o TypeScript e o Prisma CLI ficam de fora com NODE_ENV=production
+    buildCommand: npm ci --include=dev --no-audit --no-fund && npm run build
+    # aplica as migrations e cria/atualiza o usuário gestock_app antes de subir a API
+    startCommand: npm run start:render
+    healthCheckPath: /api/health/live
+    envVars:
+      - key: NODE_VERSION
+        value: '20'
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL # gestock_app no Neon (sem BYPASSRLS)
+        sync: false
+      - key: DIRECT_URL # neondb_owner no Neon (migrations)
+        sync: false
+      - key: APP_DB_PASSWORD # a mesma senha que está na DATABASE_URL
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN # endereço do site, ex.: https://gestock.onrender.com
+        sync: false
+      - key: COOKIE_SAMESITE
+        value: strict
+      - key: TRUST_PROXY # ajuste pelo log "Proxies na frente da API" (DEPLOY.md)
+        value: '2'
+
+  - type: web
+    name: gestock
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci --no-audit --no-fund && npm run build
+    staticPublishPath: dist
+    routes:
+      # TROQUE pelo endereço real da API se o Render der outro nome (ex.: gestock-api-x1y2)
+      - type: rewrite
+        source: /api/*
+        destination: https://gestock-api.onrender.com/api/*
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), microphone=(), geolocation=()
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /manifest.webmanifest
+        name: Content-Type
+        value: application/manifest+json

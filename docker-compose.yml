@@ -95,7 +95,8 @@ services:
       context: ./frontend
     restart: unless-stopped
     ports:
-      - '${FRONTEND_PORT:-8080}:80'
+      # No servidor, FRONTEND_BIND=127.0.0.1: só o Caddy (HTTPS) acessa o site por esta porta.
+      - '${FRONTEND_BIND:-0.0.0.0}:${FRONTEND_PORT:-8080}:80'
     depends_on:
       backend:
         condition: service_healthy
