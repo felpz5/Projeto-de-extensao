@@ -3,6 +3,7 @@ import {
   correctConsumption,
   forecastDemand,
   recommendReorder,
+  stockoutDays,
 } from '@/services/forecast-engine';
 import type { DailyPoint } from '@/types/forecast.types';
 import { addDays } from '@/utils/date';
@@ -78,7 +79,7 @@ describe('forecastDemand', () => {
       7,
     );
     expect(f.status).toBe('OK');
-    expect(f.confidence).toBe('LOW');
+    expect(f.historyLevel).toBe('SHORT');
     expect(f.total?.expected).toBeCloseTo(70);
     expect(f.daily.every((d) => d.expected === 10 && d.low === 10 && d.high === 10)).toBe(true);
   });
@@ -89,7 +90,7 @@ describe('forecastDemand', () => {
       7,
     );
     expect(f.method).toBe('weighted-moving-average+weekday');
-    expect(f.confidence).toBe('MEDIUM');
+    expect(f.historyLevel).toBe('WEEKLY');
     const saturday = f.daily.find((d) => d.weekday === 6)!;
     const tuesday = f.daily.find((d) => d.weekday === 2)!;
     expect(saturday.expected).toBeCloseTo(20, 0);
@@ -104,12 +105,91 @@ describe('forecastDemand', () => {
     expect(f.daily.find((d) => d.weekday === 1)!.expected).toBe(0);
   });
 
-  it('confiança alta exige 90+ dias e pouca variação', () => {
+  it('não declara "confiança alta" só pela quantidade de dias (precisão vem do backtesting)', () => {
     const f = forecastDemand(
       series(100, (_, i) => 10 + (i % 2)),
       7,
     );
-    expect(f.confidence).toBe('HIGH');
+    expect(f).not.toHaveProperty('confidence');
+    expect(f.historyLevel).toBe('WEEKLY');
+  });
+
+  it('dia sem observação (null) não conta como zero de demanda', () => {
+    const s = series(21, () => 10).map((p, i) => (i % 5 === 0 ? { ...p, value: null } : p));
+    const f = forecastDemand(s, 7);
+    expect(f.observedDays).toBe(21 - 5);
+    expect(f.total?.expected).toBeCloseTo(70);
+  });
+
+  it('falta de estoque longa não vira previsão zero (usa os últimos dias com dados)', () => {
+    // 40 dias vendendo ~10, depois 30 dias sem estoque (sem observação)
+    const s = series(70, () => 10).map((p, i) => (i >= 40 ? { ...p, value: null } : p));
+    const f = forecastDemand(s, 7);
+    expect(f.status).toBe('OK');
+    expect(f.total?.expected).toBeCloseTo(70);
+  });
+
+  it('com menos de 7 dias OBSERVADOS não prevê, mesmo com mais dias corridos', () => {
+    const s = series(12, () => 10).map((p, i) => (i < 6 ? { ...p, value: null } : p));
+    const f = forecastDemand(s, 7);
+    expect(f.status).toBe('INSUFFICIENT_HISTORY');
+    expect(f.message).toMatch(/sem estoque/);
+  });
+
+  it('dia atípico é limitado (Hampel) e não puxa a previsão', () => {
+    const base = series(28, (_, i) => 10 + (i % 3));
+    const spike = base.map((p, i) => (i === 27 ? { ...p, value: 500 } : p));
+    const normal = forecastDemand(base, 7);
+    const robust = forecastDemand(spike, 7);
+    expect(robust.outliersClipped).toBe(1);
+    // sem o limite, o pico de 500 com peso 28/406 subiria o nível em ~34 unidades
+    expect(robust.daily[0].expected - normal.daily[0].expected).toBeLessThan(2);
+  });
+
+  it('demanda intermitente informa a parcela de dias zerados', () => {
+    const f = forecastDemand(
+      series(28, (_, i) => (i % 4 === 0 ? 8 : 0)),
+      7,
+    );
+    expect(f.zeroShare).toBeCloseTo(0.75, 2);
+    expect(f.daily.every((d) => d.low >= 0)).toBe(true);
+  });
+
+  it('horizontes diferentes geram exatamente esse número de dias', () => {
+    for (const h of [1, 7, 14, 30]) {
+      expect(
+        forecastDemand(
+          series(35, () => 5),
+          h,
+        ).daily,
+      ).toHaveLength(h);
+    }
+  });
+
+  it('faixa calibrada: usa o erro medido quando ele é maior que o desvio do modelo', () => {
+    const s = series(28, (_, i) => 10 + (i % 2));
+    const plain = forecastDemand(s, 7);
+    const wide = forecastDemand(s, 7, { minSigma: 5 });
+    expect(wide.bandCalibrated).toBe(true);
+    expect(wide.bandSigma).toBe(5);
+    expect(wide.daily[0].high - wide.daily[0].expected).toBeCloseTo(5, 2);
+    expect(wide.daily.map((d) => d.expected)).toEqual(plain.daily.map((d) => d.expected));
+    // erro medido menor que o desvio do modelo: a faixa não encolhe
+    const same = forecastDemand(s, 7, { minSigma: 0.01 });
+    expect(same.bandCalibrated).toBe(false);
+    expect(same.daily[0].high).toBe(plain.daily[0].high);
+  });
+
+  it('fator de correlação alarga só a faixa do TOTAL e a margem de segurança', () => {
+    const s = series(28, (_, i) => 10 + (i % 3));
+    const base = forecastDemand(s, 7, { minSigma: 2 });
+    const corr = forecastDemand(s, 7, { minSigma: 2, totalFactor: 2 });
+    expect(corr.daily).toEqual(base.daily); // faixa diária igual
+    const width = (f: typeof base) => f.total!.high - f.total!.expected;
+    expect(width(corr)).toBeCloseTo(2 * width(base), 2);
+    const r = (f: typeof base) =>
+      recommendReorder({ stock: 0, minStock: 0, leadTimeDays: 2, coverageDays: 5, forecast: f });
+    expect(r(corr).safetyStock!).toBeCloseTo(2 * r(base).safetyStock!, 1);
   });
 
   it('limite inferior nunca é negativo', () => {
@@ -140,6 +220,51 @@ describe('recommendReorder', () => {
     expect(r.suggestedQuantity).toBeCloseTo(600);
     expect(r.daysUntilStockout).toBe(3);
     expect(r.urgency).toBe('BUY');
+    expect(r.explanation).toMatch(/não elimina/);
+  });
+
+  it('margem de segurança usa o período de proteção completo: z·σ·√(L + R)', () => {
+    const noisy = forecastDemand(
+      series(30, (_, i) => (i % 2 ? 90 : 110)),
+      9,
+    );
+    const r = recommendReorder({
+      stock: 0,
+      minStock: 0,
+      leadTimeDays: 2,
+      coverageDays: 7,
+      forecast: noisy,
+    });
+    expect(r.safetyStock).toBeCloseTo(1.65 * noisy.stdDevDaily! * Math.sqrt(9), 1);
+  });
+
+  it('margem usa o erro medido fora da amostra quando ele é maior que o do modelo', () => {
+    const r = recommendReorder({
+      stock: 0,
+      minStock: 0,
+      leadTimeDays: 2,
+      coverageDays: 7,
+      forecast: steady,
+      measuredErrorStd: 10,
+    });
+    expect(r.safetyStock).toBeCloseTo(1.65 * 10 * 3, 1);
+  });
+
+  it('dias até acabar seguem o padrão da semana, não só a média', () => {
+    // domingo e sábado vendem 30, demais dias 10 (série começa numa segunda-feira)
+    const f = forecastDemand(
+      series(28, (wd) => (wd === 0 || wd === 6 ? 30 : 10)),
+      7,
+    );
+    // a previsão começa numa segunda: 10 + 10 + 10 + 10 + 10 = 50 → acaba no fim do 5º dia
+    const r = recommendReorder({
+      stock: 50,
+      minStock: 0,
+      leadTimeDays: 1,
+      coverageDays: 6,
+      forecast: f,
+    });
+    expect(r.daysUntilStockout).toBeCloseTo(5, 0);
   });
 
   it('marca URGENTE quando acaba antes da entrega chegar', () => {
@@ -179,5 +304,55 @@ describe('recommendReorder', () => {
     });
     expect(r.urgency).toBe('LOW_STOCK_NO_HISTORY');
     expect(r.suggestedQuantity).toBeNull();
+  });
+});
+
+describe('stockoutDays (dias sem estoque)', () => {
+  const base = { start: '2026-01-01', end: '2026-01-05', first: '2026-01-01' };
+
+  it('o dia em que o estoque inicial chega NÃO é dia sem estoque', () => {
+    // começa em 0, recebe 100 no dia 1 e não vende nada nesse dia
+    const days = stockoutDays({
+      ...base,
+      startBalance: 0,
+      net: new Map([['2026-01-01', 100]]),
+      outflow: new Map(),
+    });
+    expect([...days]).toEqual([]);
+  });
+
+  it('saldo zerado o dia inteiro e nenhuma saída = sem observação', () => {
+    // 10 no início, consome 10 no dia 2, fica zerado nos dias 3 e 4, compra 50 no dia 5
+    const days = stockoutDays({
+      ...base,
+      startBalance: 10,
+      net: new Map([
+        ['2026-01-02', -10],
+        ['2026-01-05', 50],
+      ]),
+      outflow: new Map([['2026-01-02', 10]]),
+    });
+    expect([...days]).toEqual(['2026-01-03', '2026-01-04']);
+  });
+
+  it('dia com saída registrada nunca é sem observação (mesmo com saldo negativo estimado)', () => {
+    const days = stockoutDays({
+      ...base,
+      startBalance: -5,
+      net: new Map([['2026-01-01', -3]]),
+      outflow: new Map([['2026-01-01', 3]]),
+    });
+    expect(days.has('2026-01-01')).toBe(false);
+  });
+
+  it('antes do primeiro movimento do ingrediente não marca nada', () => {
+    const days = stockoutDays({
+      ...base,
+      first: '2026-01-04',
+      startBalance: 0,
+      net: new Map(),
+      outflow: new Map(),
+    });
+    expect([...days]).toEqual(['2026-01-04', '2026-01-05']);
   });
 });

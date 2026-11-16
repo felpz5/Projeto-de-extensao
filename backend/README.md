@@ -90,6 +90,7 @@ backend/
 ├── controllers/         lê a requisição, valida com Zod, chama o service, devolve o status HTTP
 ├── services/            regras de negócio (abre a transação com o tenant e chama os repositórios)
 │   ├── forecast-engine.ts   motor de previsão e reposição (funções puras)
+│   ├── forecast-evaluation.ts backtesting, métricas e modelos de referência
 │   └── sale-consumption.ts  regras de baixa de estoque de uma venda (funções puras)
 ├── repositories/        único lugar que fala com o Prisma; sempre recebe a transação `tx`
 ├── middlewares/         authenticate, authorize, rate limit, 404 e tratamento de erros
@@ -182,7 +183,13 @@ Autenticação: `Authorization: Bearer <accessToken>`. Valores decimais voltam c
 | POST | `/sales/:id/cancel` | OWNER, MANAGER · STAFF: a própria, até 15 min | `{ reason }` · venda nunca é apagada: fica cancelada e o estoque é estornado |
 | POST | `/sales/:id/correct` | idem | corpo igual ao de `POST /sales` · cancela a original e registra a nova ligada a ela, na mesma data |
 | GET | `/forecast/products?horizonDays=7` | OWNER, MANAGER | demanda prevista por produto |
+| GET | `/forecast/products/:id?horizonDays=7&lookbackDays=120` | OWNER, MANAGER | histórico, previsão, backtesting (4 modelos), explicação |
+| GET | `/forecast/accuracy?lookbackDays=120` | OWNER, MANAGER | precisão da loja por unidade (MAE, RMSE, WAPE) |
 | GET | `/forecast/reorder?coverageDays=7` | OWNER, MANAGER | sugestão de compra por ingrediente |
+| POST | `/sales/import/preview` | OWNER, MANAGER | confere um CSV de histórico (não grava) |
+| POST | `/sales/import` | OWNER, MANAGER | importa o histórico (tudo ou nada; não baixa estoque) |
+| GET | `/sales/imports` | OWNER, MANAGER | lotes importados |
+| POST | `/sales/imports/:id/undo` | OWNER, MANAGER | desfaz um lote (cancela as vendas) |
 | GET | `/dashboard?from&to` | todos (STAFF vê só estoque; vendas e sugestões: OWNER/MANAGER) | visão geral |
 
 **Dados financeiros** (custo de ingrediente, valor do estoque, custo de compra, margem) voltam como
@@ -220,4 +227,4 @@ Calculada até **ontem** (o dia de hoje ainda está incompleto), com até 120 di
 | ≥ 28 dias | + fator por dia da semana, confiança `MEDIUM` |
 | ≥ 90 dias e variação baixa | confiança `HIGH` |
 
-Sugestão de compra = consumo previsto (prazo de entrega + cobertura) + estoque de segurança − saldo. Toda resposta traz `disclaimer`, `confidence` e `usesEstimatedData`.
+Sugestão de compra = consumo previsto (prazo de entrega + cobertura) + estoque de segurança − saldo. Toda resposta traz `disclaimer`, a precisão medida no backtesting (`accuracy`), avisos (`warnings`) e `usesEstimatedData`. Metodologia: [docs/extensao-2026-2/03-metodologia-estatistica.md](../docs/extensao-2026-2/03-metodologia-estatistica.md). Relatório de precisão: `node scripts/relatorio-precisao.mjs <url-da-api>` (ver o arquivo).

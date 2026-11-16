@@ -210,7 +210,12 @@ function ManagerDashboard() {
 
   const { sales, topProducts, stock, recentMovements, reorderSuggestions } = query.data;
   const critical = stock.low + stock.out;
-  const margin = sales && toNumber(sales.revenue) > 0 ? (toNumber(sales.grossProfit) / toNumber(sales.revenue)) * 100 : null;
+  // margem só sobre as vendas com custo registrado (as importadas do histórico não têm)
+  const costed = sales ? toNumber(sales.costedRevenue ?? sales.revenue) : 0;
+  const margin = sales && costed > 0 ? (toNumber(sales.grossProfit) / costed) * 100 : null;
+  /** Variação descritiva em relação ao período anterior de mesma duração (sem base: não mostra). */
+  const changeText = (pct: number | null | undefined, n: number) =>
+    pct === null || pct === undefined ? '' : ` · ${pct >= 0 ? '▲' : '▼'} ${formatPct(Math.abs(pct))} vs. ${n} dias anteriores`;
 
   return (
     <>
@@ -236,13 +241,13 @@ function ManagerDashboard() {
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {sales && (
             <>
-              <Stat icon={TrendingUp} color="sky" label={`Faturamento · ${days} dias`} value={formatMoney(sales.revenue)} hint={`${formatNumber(sales.orders, 0)} pedidos`} />
+              <Stat icon={TrendingUp} color="sky" label={`Faturamento · ${days} dias`} value={formatMoney(sales.revenue)} hint={`${formatNumber(sales.orders, 0)} pedidos${changeText(sales.previous?.revenueChangePct, days)}`} />
               <Stat
                 icon={Percent}
                 color="emerald"
                 label="Lucro bruto (est.)"
                 value={formatMoney(sales.grossProfit)}
-                hint={margin !== null ? `Margem ${formatPct(margin)}` : 'Faturamento − custo'}
+                hint={`${margin !== null ? `Margem ${formatPct(margin)}` : 'Faturamento − custo'}${sales.importedOrders ? ' · sem vendas importadas' : ''}`}
               />
               <Stat icon={BadgeDollarSign} color="violet" label="Ticket médio" value={formatMoney(sales.averageTicket)} hint={sales.byChannel.map((c) => `${CHANNEL_LABEL[c.channel]} ${c.orders}`).join(' · ')} />
             </>
