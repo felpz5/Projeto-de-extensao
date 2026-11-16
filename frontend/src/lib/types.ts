@@ -37,6 +37,8 @@ export interface SessionTenant {
   name: string;
   slug: string;
   role: Role;
+  /** Loja de demonstração: dados simulados. */
+  isDemo?: boolean;
 }
 
 export interface Session {
@@ -224,6 +226,8 @@ export interface Sale {
   canceledByName?: string | null;
   cancelReason: string | null;
   correctsId: string | null;
+  /** APP = registrada no sistema; IMPORT = importada do histórico (não baixou estoque). */
+  source?: 'APP' | 'IMPORT';
   /**
    * Até quando quem está logado pode cancelar/corrigir: data (funcionário), null (dono/gerente,
    * sem prazo) ou false (não pode). Vem no detalhe e no caixa.
@@ -248,11 +252,23 @@ export interface SalesSummary {
   /** Custo dos ingredientes baixados pelas vendas × custo atual (estimativa). */
   estimatedCost: Decimal;
   grossProfit: Decimal;
+  /** Faturamento com custo registrado (sem as vendas importadas): base da margem. */
+  costedRevenue?: Decimal;
+  importedRevenue?: Decimal;
+  importedOrders?: number;
   /** Baixas de ingredientes sem custo cadastrado (o custo fica incompleto). */
   costMissingMovements: number;
   byChannel: { channel: Channel; orders: number; revenue: Decimal }[];
   byPayment: { method: PaymentMethod | null; orders: number; revenue: Decimal }[];
   byDay: { day: string; orders: number; revenue: Decimal }[];
+  /** Período anterior de mesma duração (comparação descritiva). */
+  previous?: {
+    period: { from: string; to: string };
+    revenue: Decimal;
+    orders: number;
+    revenueChangePct: number | null;
+    ordersChangePct: number | null;
+  };
 }
 
 export interface TopProduct {
@@ -266,7 +282,8 @@ export interface TopProduct {
 
 // ---------- Previsão ----------
 
-export type Confidence = 'LOW' | 'MEDIUM' | 'HIGH';
+/** Quanto histórico sustenta a previsão (qualidade dos DADOS, não precisão). */
+export type HistoryLevel = 'SHORT' | 'WEEKLY';
 
 export interface ForecastDay {
   date: string;
@@ -279,20 +296,119 @@ export interface ForecastDay {
 export interface Forecast {
   status: 'OK' | 'INSUFFICIENT_HISTORY';
   historyDays: number;
-  confidence: Confidence | null;
+  observedDays?: number;
+  historyLevel: HistoryLevel | null;
   method?: string | null;
   averageDaily: number | null;
   stdDevDaily?: number | null;
+  /** Desvio usado na faixa; maior que stdDevDaily quando calibrado pelo erro medido. */
+  bandSigma?: number | null;
+  bandCalibrated?: boolean;
+  weekdayFactors?: number[] | null;
+  zeroShare?: number | null;
+  outliersClipped?: number;
   total: { expected: number; low: number; high: number } | null;
   daily?: ForecastDay[];
   message: string;
 }
 
+export type ModelId = 'gestock' | 'naive' | 'seasonal-naive' | 'holt-winters';
+
+/** Erro medido fora da amostra (backtesting). WAPE null = indefinida (valores reais zerados). */
+export interface Metrics {
+  n: number;
+  mae: number | null;
+  rmse: number | null;
+  wape: number | null;
+  bias: number | null;
+}
+
+export type EvidenceLevel = 'SUFFICIENT' | 'LIMITED' | 'INSUFFICIENT';
+export type AccuracyLabel = 'GOOD' | 'MODERATE' | 'POOR';
+
+export interface AccuracySummary {
+  evidence: EvidenceLevel;
+  horizon: number | null;
+  origins: number;
+  observations: number;
+  gestock: Metrics | null;
+  baseline: { model: ModelId; metrics: Metrics } | null;
+  skill: number | null;
+  label: AccuracyLabel | null;
+  dailyCoverage: number | null;
+  message: string;
+}
+
+export interface HorizonResult {
+  horizon: number;
+  origins: number;
+  daily: Metrics;
+  total: Metrics;
+  dailyCoverage: number | null;
+  totalCoverage: number | null;
+  calibratedDailyCoverage?: number | null;
+  calibratedTotalCoverage?: number | null;
+}
+
+export interface ProductForecastItem {
+  product: { id: string; name: string; pricingMode: PricingMode };
+  measure: string;
+  forecast: Forecast;
+  accuracy: AccuracySummary;
+  importedShare: number;
+  warnings: string[];
+}
+
 export interface ProductForecastResponse {
   horizonDays: number;
   generatedFor: string;
+  isDemo: boolean;
   disclaimer: string;
-  items: { product: { id: string; name: string; pricingMode: PricingMode }; forecast: Forecast }[];
+  items: ProductForecastItem[];
+}
+
+export interface ProductForecastDetail extends ProductForecastItem {
+  horizonDays: number;
+  lookbackDays: number;
+  generatedFor: string;
+  isDemo: boolean;
+  disclaimer: string;
+  history: { date: string; value: number | null }[];
+  evaluation: {
+    status: 'OK' | 'INSUFFICIENT';
+    message: string;
+    minTrain: number;
+    step: number;
+    evaluatedFrom: string | null;
+    evaluatedTo: string | null;
+    models: Partial<Record<ModelId, HorizonResult[]>>;
+    labels: Record<ModelId, string>;
+  };
+  explanation: string[];
+}
+
+export interface AccuracyReport {
+  lookbackDays: number;
+  generatedFor: string;
+  isDemo: boolean;
+  dataSource: 'DEMO' | 'REGISTERED' | 'REGISTERED_AND_IMPORTED';
+  importedShare: number;
+  disclaimer: string;
+  models: { id: ModelId; label: string }[];
+  horizons: number[];
+  groups: {
+    key: string;
+    label: string;
+    unit: string;
+    series: number;
+    evaluatedSeries: number;
+    byHorizon: {
+      horizon: number;
+      models: { model: ModelId; series: number; origins: number; metrics: Metrics }[];
+    }[];
+    best: { id: string; name: string; accuracy: AccuracySummary }[];
+    worst: { id: string; name: string; accuracy: AccuracySummary }[];
+  }[];
 }
 
 export type ReorderUrgency =
@@ -308,7 +424,10 @@ export interface ReorderItem {
   stock: number;
   minStock: number;
   usesEstimatedData: boolean;
+  missingDays?: number;
   forecast: Forecast;
+  accuracy?: AccuracySummary;
+  warnings?: string[];
   recommendation: {
     urgency: ReorderUrgency;
     suggestedQuantity: number | null;
@@ -323,8 +442,53 @@ export interface ReorderItem {
 export interface ReorderResponse {
   coverageDays: number;
   generatedFor: string;
+  isDemo?: boolean;
   disclaimer: string;
   items: ReorderItem[];
+}
+
+// ---------- Importação de histórico ----------
+
+export interface ImportRow {
+  line: number;
+  date?: string;
+  time?: string;
+  product?: string;
+  quantity?: string;
+  total?: string;
+  weightG?: string;
+  channel?: string;
+  payment?: string;
+}
+
+export interface ImportPreview {
+  fileName: string;
+  totalRows: number;
+  validRows: number;
+  errorCount: number;
+  errors: { line: number; message: string }[];
+  warnings: string[];
+  summary: {
+    period: { first: string | null; last: string | null; days: number; daysWithSales: number; daysWithoutRows: number };
+    totalAmount: number;
+    byProduct: { productId: string; name: string; rows: number; quantity: number; amount: number }[];
+    identicalRows: number;
+    totalFromPrice: number;
+  };
+  overlap: { existingSales: number };
+  alreadyImported: { id: string; fileName: string; createdAt: string; rows: number } | null;
+  canImport: boolean;
+}
+
+export interface SaleImportBatch {
+  id: string;
+  fileName: string;
+  rows: number;
+  firstDay: string;
+  lastDay: string;
+  totalAmount: Decimal;
+  createdAt: string;
+  undoneAt: string | null;
 }
 
 // ---------- Dashboard ----------

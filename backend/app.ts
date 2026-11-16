@@ -31,7 +31,12 @@ app.use((req, _res, next) => {
 
 app.use(helmet());
 app.use(cors({ origin: corsOrigins, credentials: true }));
-app.use(express.json({ limit: '200kb' }));
+// Corpo JSON pequeno em toda a API; a importação de histórico aceita arquivos maiores.
+const smallJson = express.json({ limit: '200kb' });
+const importJson = express.json({ limit: '5mb' });
+app.use((req, res, next) =>
+  (req.path.startsWith('/api/sales/import') ? importJson : smallJson)(req, res, next),
+);
 app.use(cookieParser());
 
 app.use('/api', apiLimiter, routes);

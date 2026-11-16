@@ -79,6 +79,13 @@ export class SaleService {
   correct(auth: AuthContext, id: string, input: CreateSaleDTO) {
     return withContext(auth, async (tx) => {
       const original = await this.findEditable(tx, auth, id);
+      if (original.source === 'IMPORT') {
+        // a correção registraria uma venda nova COM baixa de estoque numa data antiga
+        throw new AppError(
+          'Venda importada não pode ser corrigida: cancele-a e registre a venda certa.',
+          409,
+        );
+      }
       await this.cancelInTx(tx, auth, original, 'Corrigida (substituída por outra venda)');
       const corrected = await this.createInTx(
         tx,
@@ -228,17 +235,50 @@ export class SaleService {
 
     const revenue = totals._sum.totalAmount ?? ZERO;
     const orders = totals._count;
+
+    // Período anterior de MESMA duração, imediatamente antes (comparação descritiva).
+    const length = period.to.getTime() - period.from.getTime();
+    const previousPeriod = {
+      from: new Date(period.from.getTime() - length - 1),
+      to: new Date(period.from.getTime() - 1),
+    };
+    const prev = await this.sales.totals(tx, {
+      tenantId,
+      status: 'COMPLETED',
+      soldAt: { gte: previousPeriod.from, lte: previousPeriod.to },
+    });
+    const prevRevenue = prev._sum.totalAmount ?? ZERO;
+    // Vendas importadas do histórico não baixam estoque, logo não têm custo registrado: ficam
+    // fora do lucro bruto e da margem (senão a margem do período sairia inflada).
+    const imported = await this.sales.totals(tx, { ...where, source: 'IMPORT' });
+    const importedRevenue = imported._sum.totalAmount ?? ZERO;
+    const costedRevenue = revenue.minus(importedRevenue);
+    /** Variação percentual; null quando o período anterior é zero (não há base de comparação). */
+    const change = (now: number, before: number) =>
+      before > 0 ? Math.round(((now - before) / before) * 1000) / 10 : null;
+
     return {
       period,
       revenue,
       orders,
       averageTicket: orders ? revenue.div(orders).toDecimalPlaces(2) : ZERO,
+      previous: {
+        period: previousPeriod,
+        revenue: prevRevenue,
+        orders: prev._count,
+        revenueChangePct: change(revenue.toNumber(), prevRevenue.toNumber()),
+        ordersChangePct: change(orders, prev._count),
+      },
       /**
        * Custo dos ingredientes que as vendas baixaram × custo atual de cada um (estimativa:
        * vendas sem receita/composição não baixam ingredientes e não entram no custo).
        */
       estimatedCost: cost.cost,
-      grossProfit: revenue.minus(cost.cost),
+      /** Faturamento das vendas com custo registrado (exclui as importadas). */
+      costedRevenue,
+      importedRevenue,
+      importedOrders: imported._count,
+      grossProfit: costedRevenue.minus(cost.cost),
       costMissingMovements: cost.withoutCost,
       byChannel: byChannel.map((c) => ({
         channel: c.channel,

@@ -708,8 +708,12 @@ run('Gestock API (e2e)', () => {
         (i: { product: { id: string } }) => i.product.id === ids.peso,
       );
       expect(peso.forecast.status).toBe('OK');
-      expect(peso.forecast.confidence).toBe('LOW');
+      expect(peso.forecast.historyLevel).toBe('SHORT');
+      expect(peso.forecast).not.toHaveProperty('confidence');
       expect(peso.forecast.daily).toHaveLength(7);
+      // precisão medida fora da amostra vem junto (com 21 dias: preliminar)
+      expect(['LIMITED', 'SUFFICIENT', 'INSUFFICIENT']).toContain(peso.accuracy.evidence);
+      expect(Array.isArray(peso.warnings)).toBe(true);
 
       const reorder = await asA('get', '/forecast/reorder?coverageDays=7').expect(200);
       const acai = reorder.body.items.find(
@@ -766,6 +770,223 @@ run('Gestock API (e2e)', () => {
       const a = res.body.stores.find((s: { tenant: { id: string } }) => s.tenant.id === A.tenantId);
       expect(a.role).toBe('MANAGER');
       expect(a.period.orders).toBeGreaterThan(0);
+    });
+  });
+
+  describe('precisão da previsão (backtesting) e importação de histórico', () => {
+    const iso = (daysAgo: number) => {
+      const today = todayIn('America/Sao_Paulo');
+      const d = new Date(`${today}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - daysAgo);
+      return d.toISOString().slice(0, 10);
+    };
+    // 70..41 dias atrás: período sem outras vendas (as dos testes anteriores são mais recentes)
+    const rows = Array.from({ length: 30 }, (_, i) => {
+      const qty = 10 + (i % 7 === 5 ? 8 : 0);
+      return {
+        line: i + 2,
+        date: iso(70 - i),
+        product: 'Água mineral',
+        quantity: String(qty),
+        total: `${qty * 4},00`,
+        payment: 'Pix',
+      };
+    });
+    let importId = '';
+    let staffAuth = { Authorization: '' };
+
+    it('prepara: produto e funcionário', async () => {
+      const agua = await asA('post', '/products')
+        .send({ name: 'Água mineral', pricingMode: 'UNIT', price: 4 })
+        .expect(201);
+      ids.agua = agua.body.id;
+      // receita fixa: 1 garrafa por água (o histórico importado estima o consumo por ela)
+      const garrafa = await asA('post', '/ingredients')
+        .send({ name: 'Garrafa PET', baseUnit: 'UN', leadTimeDays: 3 })
+        .expect(201);
+      ids.garrafa = garrafa.body.id;
+      await asA('put', `/products/${ids.agua}/recipe`)
+        .send({ items: [{ ingredientId: ids.garrafa, quantity: 1 }] })
+        .expect(200);
+      await asA('post', '/tenant/members')
+        .send({
+          email: `staff-imp${suffix}@teste.com`,
+          role: 'STAFF',
+          name: 'Func Imp',
+          password: 'senha-provisoria-9',
+        })
+        .expect(201);
+      const login = await api()
+        .post('/api/auth/login')
+        .send({ email: `staff-imp${suffix}@teste.com`, password: 'senha-provisoria-9' })
+        .expect(200);
+      staffAuth = { Authorization: `Bearer ${login.body.accessToken}` };
+    });
+
+    it('funcionário não importa histórico (403)', async () => {
+      await api()
+        .post('/api/sales/import/preview')
+        .set(staffAuth)
+        .send({ fileName: 'x.csv', rows })
+        .expect(403);
+    });
+
+    it('pré-visualização aponta erros por linha e não grava nada', async () => {
+      const bad = [...rows.slice(0, 2), { line: 99, date: '31/02/2026', product: 'Água mineral' }];
+      const res = await asA('post', '/sales/import/preview')
+        .send({ fileName: 'ruim.csv', rows: bad })
+        .expect(200);
+      expect(res.body.canImport).toBe(false);
+      expect(res.body.errors).toEqual([
+        expect.objectContaining({ line: 99, message: expect.stringMatching(/Data inválida/) }),
+      ]);
+      await asA('post', '/sales/import').send({ fileName: 'ruim.csv', rows: bad }).expect(422);
+      const imports = await asA('get', '/sales/imports').expect(200);
+      expect(imports.body).toHaveLength(0);
+    });
+
+    it('importa o histórico (tudo numa transação) SEM mexer no estoque atual', async () => {
+      const before = await asA('get', '/inventory/levels').expect(200);
+      const preview = await asA('post', '/sales/import/preview')
+        .send({ fileName: 'caderno.csv', rows })
+        .expect(200);
+      expect(preview.body.canImport).toBe(true);
+      expect(preview.body.summary.period.days).toBe(30);
+
+      const res = await asA('post', '/sales/import')
+        .send({ fileName: 'caderno.csv', rows })
+        .expect(201);
+      expect(res.body.imported).toBe(30);
+      importId = res.body.id;
+
+      const after = await asA('get', '/inventory/levels').expect(200);
+      const qty = (b: { body: { ingredientId: string; quantity: string }[] }) =>
+        Object.fromEntries(b.body.map((l) => [l.ingredientId, String(l.quantity)]));
+      expect(qty(after)).toEqual(qty(before));
+    });
+
+    it('o histórico importado estima o consumo do ingrediente pela receita (só na previsão)', async () => {
+      const reorder = await asA('get', '/forecast/reorder?coverageDays=7').expect(200);
+      const garrafa = reorder.body.items.find(
+        (i: { ingredient: { id: string } }) => i.ingredient.id === ids.garrafa,
+      );
+      expect(garrafa.stock).toBe(0); // nada entrou no estoque
+      expect(garrafa.usesEstimatedData).toBe(true);
+      // sem o histórico importado não haveria série; com ele, começa 70 dias atrás
+      expect(garrafa.forecast.status).toBe('OK');
+      expect(garrafa.forecast.historyDays).toBeGreaterThanOrEqual(69);
+      // as vendas importadas pararam há 40 dias: previsão perto de zero é o resultado honesto
+      expect(garrafa.forecast.averageDaily).toBeGreaterThanOrEqual(0);
+    });
+
+    it('o mesmo conteúdo não entra duas vezes (409)', async () => {
+      const res = await asA('post', '/sales/import')
+        .send({ fileName: 'outro-nome.csv', rows })
+        .expect(409);
+      expect(res.body.code).toBe('IMPORT_DUPLICATE');
+    });
+
+    it('período que já tem vendas exige confirmação explícita', async () => {
+      const extra = [{ line: 2, date: iso(60), product: 'Água mineral', quantity: '1' }];
+      const res = await asA('post', '/sales/import')
+        .send({ fileName: 'extra.csv', rows: extra })
+        .expect(409);
+      expect(res.body.code).toBe('IMPORT_OVERLAP');
+      await asA('post', '/sales/import')
+        .send({ fileName: 'extra.csv', rows: extra, allowOverlap: true })
+        .expect(201);
+    });
+
+    it('venda importada não pode ser corrigida (evitaria baixa de estoque com data antiga)', async () => {
+      const list = await asA('get', `/sales?productId=${ids.agua}&status=COMPLETED&take=1`).expect(
+        200,
+      );
+      const sale = list.body.items[0];
+      expect(sale.source).toBe('IMPORT');
+      await asA('post', `/sales/${sale.id}/correct`)
+        .send({ channel: 'IN_STORE', items: [{ productId: ids.agua }] })
+        .expect(409);
+    });
+
+    it('outro estabelecimento não vê nem desfaz a importação (RLS)', async () => {
+      const list = await asB('get', '/sales/imports').expect(200);
+      expect(list.body).toHaveLength(0);
+      await asB('post', `/sales/imports/${importId}/undo`).expect(404);
+      await asB('get', `/forecast/products/${ids.agua}`).expect(404);
+    });
+
+    it('detalhe do produto: histórico, previsão, backtesting com 4 modelos e explicação', async () => {
+      const res = await asA(
+        'get',
+        `/forecast/products/${ids.agua}?horizonDays=7&lookbackDays=120`,
+      ).expect(200);
+      expect(res.body.importedShare).toBe(1);
+      expect(res.body.history.length).toBeGreaterThanOrEqual(30);
+      expect(res.body.forecast.status).toBe('OK');
+      expect(Object.keys(res.body.evaluation.models).sort()).toEqual(
+        ['gestock', 'holt-winters', 'naive', 'seasonal-naive'].sort(),
+      );
+      const h7 = res.body.evaluation.models.gestock.find(
+        (h: { horizon: number }) => h.horizon === 7,
+      );
+      expect(h7.origins).toBeGreaterThan(0);
+      expect(h7.daily.mae).not.toBeNull();
+      expect(h7).not.toHaveProperty('sums');
+      expect(res.body.explanation.join(' ')).toMatch(/média ponderada/);
+      await asA('get', '/forecast/products/nao-e-uuid').expect(422);
+    });
+
+    it('relatório de precisão separa as unidades e informa a origem dos dados', async () => {
+      const res = await asA('get', '/forecast/accuracy?lookbackDays=120').expect(200);
+      expect(res.body.isDemo).toBe(false);
+      expect(res.body.dataSource).toBe('REGISTERED_AND_IMPORTED');
+      const keys = res.body.groups.map((g: { key: string }) => g.key);
+      expect(keys).toEqual(
+        expect.arrayContaining(['store-orders', 'product-units', 'product-sales']),
+      );
+      const units = res.body.groups.find((g: { key: string }) => g.key === 'product-units');
+      const h7 = units.byHorizon.find((h: { horizon: number }) => h.horizon === 7);
+      expect(h7.models.map((m: { model: string }) => m.model)).toEqual([
+        'gestock',
+        'naive',
+        'seasonal-naive',
+        'holt-winters',
+      ]);
+      await api().get('/api/forecast/accuracy').set(staffAuth).expect(403);
+    });
+
+    it('desfazer cancela as vendas do lote (nada é apagado) e libera reimportar', async () => {
+      const res = await asA('post', `/sales/imports/${importId}/undo`).expect(200);
+      expect(res.body.canceled).toBe(30);
+      await asA('post', `/sales/imports/${importId}/undo`).expect(409);
+      const canceled = await asA(
+        'get',
+        `/sales?productId=${ids.agua}&status=CANCELED&take=1`,
+      ).expect(200);
+      expect(canceled.body.total).toBe(30);
+      expect(canceled.body.items[0].cancelReason).toBe('Importação desfeita');
+      await asA('post', '/sales/import')
+        .send({ fileName: 'caderno.csv', rows, allowOverlap: true })
+        .expect(201);
+    });
+
+    it('resumo de vendas compara com o período anterior', async () => {
+      const res = await asA('get', '/sales/summary').expect(200);
+      expect(res.body.previous).toHaveProperty('revenue');
+      expect(res.body.previous).toHaveProperty('revenueChangePct');
+    });
+
+    it('vendas importadas (sem custo registrado) ficam fora do lucro bruto e da margem', async () => {
+      const res = await asA('get', `/sales/summary?from=${iso(75)}&to=${iso(1)}`).expect(200);
+      const revenue = Number(res.body.revenue);
+      const imported = Number(res.body.importedRevenue);
+      expect(imported).toBeGreaterThan(0);
+      expect(res.body.importedOrders).toBeGreaterThan(0);
+      expect(Number(res.body.costedRevenue)).toBeCloseTo(revenue - imported, 2);
+      expect(Number(res.body.grossProfit)).toBeCloseTo(
+        revenue - imported - Number(res.body.estimatedCost),
+        2,
+      );
     });
   });
 

@@ -10,7 +10,7 @@ const memberSelect = {
   user: { select: { id: true, name: true, email: true } },
 } as const;
 
-const tenantRef = { select: { id: true, name: true, slug: true } } as const;
+const tenantRef = { select: { id: true, name: true, slug: true, isDemo: true } } as const;
 
 export class MembershipRepository {
   findOne(tx: Tx, tenantId: string, userId: string) {

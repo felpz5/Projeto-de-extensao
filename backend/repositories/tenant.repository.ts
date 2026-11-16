@@ -6,6 +6,14 @@ export class TenantRepository {
     return tx.tenant.findUniqueOrThrow({ where: { id } });
   }
 
+  /** Fuso e se é a loja de demonstração (dados simulados). */
+  findForecastInfo(tx: Tx, id: string) {
+    return tx.tenant.findUniqueOrThrow({
+      where: { id },
+      select: { timezone: true, isDemo: true },
+    });
+  }
+
   async findTimezone(tx: Tx, id: string): Promise<string> {
     const { timezone } = await tx.tenant.findUniqueOrThrow({
       where: { id },
